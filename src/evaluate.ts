@@ -99,8 +99,11 @@ export function evaluate(kind: Kind, f: Facts): Verdict {
     if (!eq(f.push.login, expLogin)) {
       if (f.push.via === "ssh") {
         problems.push(`push over ssh uses ${f.push.login}'s key, expected ${expLogin}`);
+        const target = `git@<alias>:${f.remote.owner}/${f.remote.repo}.git`;
         fix(
-          `Configure an SSH key for ${expLogin} (e.g. a Host alias in ~/.ssh/config) and set the remote: git remote set-url ${f.remoteName} git@<alias>:${f.remote.owner}/${f.remote.repo}.git`,
+          f.remoteName === ""
+            ? `Configure an SSH key for ${expLogin} (e.g. a Host alias in ~/.ssh/config) and push to ${target}`
+            : `Configure an SSH key for ${expLogin} (e.g. a Host alias in ~/.ssh/config) and set the remote: git remote set-url ${f.remoteName} ${target}`,
         );
       } else {
         problems.push(`push over gh credentials uses ${f.push.login}, expected ${expLogin}`);

@@ -130,3 +130,53 @@ test("internal error → empty stdout, error logged", async () => {
 test("invalid stdin → empty", async () => {
   assert.equal((await runHook("not json", fakeDeps())).stdout, "");
 });
+
+test("partial learning (token exec fails for one login) → no deny, nothing persisted", async () => {
+  const d = fakeDeps({
+    files: files("https://github.com/corp/app.git"),
+    exec: (cmd, args) =>
+      cmd === "gh" && args[3] === "alice"
+        ? ({ code: null, stdout: "", stderr: "" } as unknown as { code: number; stdout: string; stderr: string })
+        : ghTokens(cmd, args),
+    fetch: (async () => new Response(JSON.stringify({ permissions: { push: true } }), { status: 200 })) as unknown as typeof fetch,
+  });
+  const r = await runHook(input("gh pr create"), d);
+  assert.ok(!r.stdout.includes("deny"));
+  assert.equal(d.readFile(learnedPath), null);
+});
+
+test("explicit push URL fix does not name a remote", async () => {
+  const d = fakeDeps({
+    files: files("git@github.com:alice/x.git", { [learnedPath]: learned("corp/app", "bob-work") }),
+    exec: (cmd) =>
+      cmd === "ssh" ? { code: 1, stdout: "", stderr: "Hi alice!" } : { code: 1, stdout: "", stderr: "" },
+  });
+  const j = JSON.parse((await runHook(input("git push git@github.com:corp/app.git main"), d)).stdout);
+  const reason = j.hookSpecificOutput.permissionDecisionReason;
+  assert.match(reason, /push to git@<alias>:corp\/app\.git/);
+  assert.doesNotMatch(reason, /set-url/);
+});
+
+test("-R accepts HOST/OWNER/REPO; other hosts are allowed", async () => {
+  const d = fakeDeps({ files: files("git@github.com:alice/x.git", { [learnedPath]: learned("corp/app", "bob-work") }) });
+  const j = JSON.parse((await runHook(input("gh pr create -R github.com/corp/app"), d)).stdout);
+  assert.equal(j.hookSpecificOutput.permissionDecision, "deny");
+  assert.equal((await runHook(input("gh pr create -R ghe.corp/x/y"), d)).stdout, "");
+  assert.equal((await runHook(input("gh pr create -R a/b/c/d"), d)).stdout, "");
+});
+
+test("commit segments never probe ssh", async () => {
+  const calls: string[] = [];
+  const d = fakeDeps({
+    files: files("git@github.com:corp/app.git", { [learnedPath]: learned("corp/app", "bob-work") }),
+    exec: (cmd) => { calls.push(cmd); return { code: 1, stdout: "", stderr: "" }; },
+  });
+  await runHook(input("git commit -m x"), d);
+  assert.ok(!calls.includes("ssh"));
+});
+
+test("pr -R outside a git repo still evaluates", async () => {
+  const d = fakeDeps({ files: { [hostsPath]: HOSTS, [learnedPath]: learned("corp/app", "bob-work") } });
+  const j = JSON.parse((await runHook(input("gh pr create -R corp/app"), d)).stdout);
+  assert.equal(j.hookSpecificOutput.permissionDecision, "deny");
+});

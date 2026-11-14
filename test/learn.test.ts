@@ -191,10 +191,7 @@ test("commits fetch rejects -> ambiguous", async () => {
   assert.equal(e?.basis, "ambiguous");
 });
 
-test("token exec failure skips that login", async () => {
-  const { d, calls } = setup({ push: { A: true, B: true }, tokenFail: "B" });
-  const e = await learnRepo("org", "repo", ["A", "B"], d, 1000);
-  assert.equal(e?.basis, "single");
-  assert.deepEqual(e?.pushers, ["A"]);
-  assert.equal(calls.length, 1);
+test("token exec failure for any login aborts learning", async () => {
+  const { d } = setup({ push: { A: true, B: true }, tokenFail: "B" });
+  assert.equal(await learnRepo("org", "repo", ["A", "B"], d, 1000), null);
 });

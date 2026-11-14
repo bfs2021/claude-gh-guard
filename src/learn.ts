@@ -89,7 +89,8 @@ export async function learnRepo(
       if (remaining <= 1 && ctrl.signal.aborted) return null;
       const t = d.exec("gh", ["auth", "token", "--user", login], { timeoutMs: remaining });
       const token = t.stdout.trim();
-      if (t.code !== 0 || !token) continue;
+      // a login we cannot get a token for would be mistaken for a non-pusher: give up instead
+      if (t.code !== 0 || !token) return null;
       if (Date.now() - start >= timeoutMs) return null;
       const r = await api(base, token);
       if (

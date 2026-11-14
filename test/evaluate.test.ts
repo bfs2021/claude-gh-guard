@@ -122,3 +122,14 @@ test("resolveExpected: precedence and casing", () => {
   assert.deepEqual(resolveExpected(r2, logins, [], undefined), { login: null, source: "none", ambiguous: false, emails: [] });
   assert.equal(resolveExpected(r2, logins, [], { ...learned, basis: "none", expected: null }).source, "none");
 });
+
+test("push ssh fix without a named remote says push to the url", () => {
+  const v = evaluate("push", facts({
+    hosts: { ...hosts, active: "bob-work" },
+    push: { via: "ssh", login: "alice" },
+    remoteName: "",
+  }));
+  assert.deepEqual(v.fixes, [
+    "Configure an SSH key for bob-work (e.g. a Host alias in ~/.ssh/config) and push to git@<alias>:corp/app.git",
+  ]);
+});

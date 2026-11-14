@@ -39,15 +39,23 @@ export async function runHook(stdin: string, d: Deps): Promise<{ stdout: string;
     let notice: string | null = null;
 
     for (const seg of segs) {
-      const opts: { allowSpawn: boolean; remoteName?: string; remoteOverride?: Remote } = { allowSpawn: true };
+      const opts: { allowSpawn: boolean; remoteName?: string; remoteOverride?: Remote; skipPush?: boolean } = {
+        allowSpawn: true,
+        skipPush: seg.kind === "commit",
+      };
+      let explicit = false;
       if (seg.remoteUrl !== undefined) {
         const r = parseRemoteUrl(seg.remoteUrl, sshConfig);
         if (!r) continue;
         opts.remoteOverride = r;
+        explicit = true;
       } else if (seg.ghRepo !== undefined) {
-        const [owner, repo] = seg.ghRepo.split("/");
-        if (!owner || !repo) continue;
-        opts.remoteOverride = { protocol: "https", host: "github.com", sshAlias: null, owner, repo };
+        const parts = seg.ghRepo.split("/");
+        if (parts.length !== 2 && parts.length !== 3) continue;
+        const [host, owner, repo] = parts.length === 3 ? parts : ["github.com", parts[0], parts[1]];
+        if (!host || !owner || !repo) continue;
+        opts.remoteOverride = { protocol: "https", host, sshAlias: null, owner, repo };
+        explicit = true;
       } else if (seg.kind === "pr") {
         opts.remoteName = prRemoteName(findRepo(seg.cwd, d));
       } else if (seg.kind === "push" && seg.remoteName) {
@@ -62,10 +70,11 @@ export async function runHook(stdin: string, d: Deps): Promise<{ stdout: string;
           const entry = await learnRepo(g.needsLearn.owner, g.needsLearn.repo, logins, d, remaining);
           if (entry) {
             writeLearned(d, `${g.needsLearn.owner}/${g.needsLearn.repo}`, entry);
-            g = gatherFacts(seg.cwd, d, opts);
+            g = gatherFacts(seg.cwd, d, { ...opts, allowSpawn: false });
           }
         }
       }
+      if (explicit && seg.kind === "push") g.facts.remoteName = "";
       if (seg.emailOverride !== undefined) g.facts.email = seg.emailOverride;
 
       const v = evaluate(seg.kind, g.facts);
