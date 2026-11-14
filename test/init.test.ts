@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
+import { existsSync } from "node:fs";
 import { fakeDeps } from "./helpers.ts";
 import { runInit, runUninstall, shellQuote, posixQuote, posixUnquote } from "../src/commands/init.ts";
 
@@ -68,9 +69,15 @@ test("tricky commands: exact written string, no shell expansion, uninstall round
   }
 });
 
-test("quoted argument reaches node byte-exact through a real bash", { skip: spawnSync("bash", ["-c", "true"]).status !== 0 }, () => {
+// On Windows a bare "bash" can resolve to WSL (System32ash.exe), which has no node: use Git Bash explicitly.
+const realBash =
+  process.platform === "win32"
+    ? [process.env.ProgramFiles && path.join(process.env.ProgramFiles, "Git", "bin", "bash.exe")].find((p) => p && existsSync(p))
+    : "bash";
+
+test("quoted argument reaches node byte-exact through a real bash", { skip: !realBash || spawnSync(realBash, ["-c", "true"]).status !== 0 }, () => {
   for (const t of TRICKY) {
-    const r = spawnSync("bash", ["-c", `node -e 'process.stdout.write(process.argv[1])' ${posixQuote(t)}`], { encoding: "utf8" });
+    const r = spawnSync(realBash!, ["-c", `node -e 'process.stdout.write(process.argv[1])' ${posixQuote(t)}`], { encoding: "utf8" });
     assert.equal(r.stdout, t);
   }
 });
