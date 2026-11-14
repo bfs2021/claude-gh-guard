@@ -1,5 +1,11 @@
 # claude-gh-guard
 
+[![npm version](https://img.shields.io/npm/v/claude-gh-guard)](https://www.npmjs.com/package/claude-gh-guard)
+[![npm downloads](https://img.shields.io/npm/dm/claude-gh-guard)](https://www.npmjs.com/package/claude-gh-guard)
+[![CI](https://github.com/seuthootDev/claude-gh-guard/actions/workflows/ci.yml/badge.svg)](https://github.com/seuthootDev/claude-gh-guard/actions/workflows/ci.yml)
+[![node](https://img.shields.io/node/v/claude-gh-guard)](https://www.npmjs.com/package/claude-gh-guard)
+[![license](https://img.shields.io/npm/l/claude-gh-guard)](LICENSE)
+
 Stop Claude Code from committing to your work repo with your personal GitHub account.
 
 It adds two things to Claude Code: a status line segment that always shows which GitHub identity is in play for the current repo, and a `PreToolUse` hook that blocks `git commit`, `git push` and `gh pr create` when the identity is definitely the wrong one. Zero runtime dependencies, Node >= 18.
