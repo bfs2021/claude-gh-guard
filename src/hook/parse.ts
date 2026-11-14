@@ -49,7 +49,7 @@ function tokenize(input: string): string[][] {
 }
 
 function baseName(cmd: string): string {
-  return cmd.split(/[\/]/).pop()!.toLowerCase();
+  return cmd.split(/[\\/]/).pop()!.toLowerCase();
 }
 const isGit = (cmd: string) => ["git", "git.exe"].includes(baseName(cmd));
 const isGh = (cmd: string) => ["gh", "gh.exe"].includes(baseName(cmd));
@@ -60,7 +60,7 @@ function isUrlLike(s: string): boolean {
   if (s.includes("://") || s.includes("@")) return true;
   const colon = s.indexOf(":");
   if (colon < 0) return false;
-  const slash = s.search(/[\/]/);
+  const slash = s.search(/[\\/]/);
   return slash < 0 || colon < slash;
 }
 
