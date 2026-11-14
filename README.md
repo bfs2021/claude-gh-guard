@@ -12,6 +12,10 @@ It adds two things to Claude Code: a status line segment that always shows which
 
 ![Status line showing a mismatch and the hook denying gh pr create](assets/mismatch.png)
 
+**Nothing to check** — outside a GitHub repo (here: no remote yet) the segment is grey and nothing is blocked:
+
+![Status line showing an untracked repo without a remote](assets/no-remote.png)
+
 ## Install
 
 ```sh
