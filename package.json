@@ -1,6 +1,16 @@
 {
   "name": "claude-gh-guard",
   "version": "0.1.0",
+  "description": "Stop Claude Code from committing to your work repo with your personal GitHub account",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/seuthootDev/claude-gh-guard.git"
+  },
+  "homepage": "https://github.com/seuthootDev/claude-gh-guard#readme",
+  "bugs": {
+    "url": "https://github.com/seuthootDev/claude-gh-guard/issues"
+  },
   "type": "module",
   "bin": {
     "claude-gh-guard": "dist/cli.js"
