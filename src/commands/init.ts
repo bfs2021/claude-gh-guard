@@ -11,16 +11,42 @@ export function shellQuote(p: string): string {
   return `"${p.replace(/\\/g, "/")}"`;
 }
 
-const binDir = (d: Deps) => path.join(stateDir(d), "bin");
-const binFile = (d: Deps) => path.join(binDir(d), "cli.js");
-const originalFile = (d: Deps) => path.join(stateDir(d), "original-statusline.json");
+/** POSIX single-quote: nothing inside is expanded by the shell. */
+export function posixQuote(s: string): string {
+  return "'" + s.replace(/'/g, "'\\''") + "'";
+}
 
-const OURS_STATUSLINE = /^node "[^"]*\.claude-gh-guard\/bin\/cli\.js" statusline(?= |$)/;
+/** Inverse of posixQuote; null when the text is not exactly one such quoted word. */
+export function posixUnquote(s: string): string | null {
+  let out = "";
+  let i = 0;
+  while (i < s.length) {
+    if (s[i] === "'") {
+      const end = s.indexOf("'", i + 1);
+      if (end < 0) return null;
+      out += s.slice(i + 1, end);
+      i = end + 1;
+    } else if (s.startsWith("\\'", i)) {
+      out += "'";
+      i += 2;
+    } else {
+      return null;
+    }
+  }
+  return out;
+}
+
+const binDir = (d: Deps) => path.join(stateDir(d), "bin");
+const binFile = (d: Deps) => path.join(binDir(d), "cli.mjs");
+
+const OURS_MARK = ".claude-gh-guard/bin/cli.";
+const OURS_STATUSLINE = /^node "[^"]*\.claude-gh-guard\/bin\/cli\.m?js" statusline(?= |$)/;
 const isOursStatusLine = (v: unknown): boolean =>
   isObject(v) && typeof v.command === "string" && OURS_STATUSLINE.test(v.command);
-const isOursCommand = (c: unknown): boolean => typeof c === "string" && c.includes("claude-gh-guard");
+const isOursCommand = (c: unknown): boolean => typeof c === "string" && c.includes(OURS_MARK);
 const entryHooks = (e: unknown): unknown[] => (isObject(e) && Array.isArray(e.hooks) ? e.hooks : []);
-const isOursEntry = (e: unknown): boolean => entryHooks(e).some((h) => isObject(h) && isOursCommand(h.command));
+const isOursHook = (h: unknown): boolean => isObject(h) && isOursCommand(h.command);
+const isOursEntry = (e: unknown): boolean => entryHooks(e).some(isOursHook);
 
 function timestamp(ms: number): string {
   return new Date(ms).toISOString().replace(/[-:]/g, "").replace("T", "-").slice(0, 15);
@@ -40,6 +66,22 @@ function loadSettings(file: string, d: Deps): { json: Json; text: string | null 
 
 const serialize = (j: Json) => JSON.stringify(j, null, 2) + "\n";
 
+/** Drop our hook objects from every PreToolUse entry; entries left empty are removed. Returns the index where our first whole entry stood. */
+function stripOurs(pre: unknown[]): { kept: unknown[]; at: number } {
+  const kept: unknown[] = [];
+  let at = -1;
+  for (const e of pre) {
+    if (!isOursEntry(e)) {
+      kept.push(e);
+      continue;
+    }
+    const rest = entryHooks(e).filter((h) => !isOursHook(h));
+    if (rest.length > 0) kept.push({ ...(e as Json), hooks: rest });
+    else if (at < 0) at = kept.length;
+  }
+  return { kept, at };
+}
+
 export function runInit(d: Deps, selfPath: string, opts: { settings?: string } = {}): string {
   const file = opts.settings ?? claudeSettingsPath(d);
   const loaded = loadSettings(file, d);
@@ -50,11 +92,6 @@ export function runInit(d: Deps, selfPath: string, opts: { settings?: string } =
   if (code === null) return `error: cannot read ${selfPath} to install it`;
 
   const lines: string[] = [];
-  if (text !== null) {
-    const bak = `${file}.bak-${timestamp(d.now())}`;
-    d.writeFile(bak, text);
-    lines.push(`backup: ${bak}`);
-  }
   d.writeFile(binFile(d), code);
   const base = `node ${shellQuote(binFile(d))}`;
 
@@ -64,8 +101,7 @@ export function runInit(d: Deps, selfPath: string, opts: { settings?: string } =
     const o = cur as Json;
     o.command = (o.command as string).replace(OURS_STATUSLINE, `${base} statusline`);
   } else if (isObject(cur) && typeof cur.command === "string") {
-    d.writeFile(originalFile(d), JSON.stringify(cur, null, 2));
-    json.statusLine = { ...cur, command: `${base} statusline --after ${JSON.stringify(cur.command)}` };
+    json.statusLine = { ...cur, command: `${base} statusline --after ${posixQuote(cur.command)}` };
   } else {
     json.statusLine = { type: "command", command: `${base} statusline` };
   }
@@ -73,15 +109,25 @@ export function runInit(d: Deps, selfPath: string, opts: { settings?: string } =
   // hook
   const entry = { matcher: "Bash", hooks: [{ type: "command", command: `${base} hook` }] };
   const hooks: Json = isObject(json.hooks) ? json.hooks : {};
-  const pre = Array.isArray(hooks.PreToolUse) ? hooks.PreToolUse : [];
-  const at = pre.findIndex(isOursEntry);
-  const next = pre.filter((e) => !isOursEntry(e));
-  next.splice(at >= 0 ? at : next.length, 0, entry);
-  hooks.PreToolUse = next;
+  const { kept, at } = stripOurs(Array.isArray(hooks.PreToolUse) ? hooks.PreToolUse : []);
+  kept.splice(at >= 0 ? at : kept.length, 0, entry);
+  hooks.PreToolUse = kept;
   json.hooks = hooks;
 
-  d.writeFile(file, serialize(json));
-  lines.push(`updated: ${file}`, `installed: ${binFile(d)}`, "statusLine and PreToolUse hook registered");
+  const out = serialize(json);
+  if (out === text) {
+    lines.push(`unchanged: ${file}`);
+  } else {
+    if (text !== null) {
+      let bak = `${file}.bak-${timestamp(d.now())}`;
+      for (let n = 1; d.mtime(bak) !== null; n++) bak = `${file}.bak-${timestamp(d.now())}-${n}`;
+      d.writeFile(bak, text);
+      lines.push(`backup: ${bak}`);
+    }
+    d.writeFile(file, out);
+    lines.push(`updated: ${file}`);
+  }
+  lines.push(`installed: ${binFile(d)}`, "statusLine and PreToolUse hook registered");
   return lines.join("\n");
 }
 
@@ -91,35 +137,29 @@ export function runUninstall(d: Deps, opts: { settings?: string } = {}): string 
   if (typeof loaded === "string") return loaded;
   const { json, text } = loaded;
 
+  const notes: string[] = [];
   if (text !== null) {
     if (isObject(json.hooks) && Array.isArray(json.hooks.PreToolUse)) {
       const hooks = json.hooks;
-      const kept: unknown[] = [];
-      for (const e of hooks.PreToolUse as unknown[]) {
-        if (!isOursEntry(e)) {
-          kept.push(e);
-          continue;
-        }
-        const rest = entryHooks(e).filter((h) => !(isObject(h) && isOursCommand(h.command)));
-        if (rest.length > 0) kept.push({ ...(e as Json), hooks: rest });
-      }
+      const { kept } = stripOurs(hooks.PreToolUse as unknown[]);
       if (kept.length > 0) hooks.PreToolUse = kept;
       else delete hooks.PreToolUse;
       if (Object.keys(hooks).length === 0) delete json.hooks;
     }
-    if (isOursStatusLine(json.statusLine)) {
-      let restored: unknown = null;
-      try {
-        restored = JSON.parse(d.readFile(originalFile(d)) ?? "");
-      } catch {
-        restored = null;
+    const sl = json.statusLine;
+    if (isObject(sl) && isOursStatusLine(sl)) {
+      const rest = (sl.command as string).replace(OURS_STATUSLINE, "");
+      if (rest === "") {
+        delete json.statusLine;
+      } else {
+        const orig = rest.startsWith(" --after ") ? posixUnquote(rest.slice(" --after ".length)) : null;
+        if (orig !== null) json.statusLine = { ...sl, command: orig };
+        else notes.push("could not recover the original statusLine command; left it in place");
       }
-      if (isObject(restored)) json.statusLine = restored;
-      else delete json.statusLine;
     }
     d.writeFile(file, serialize(json));
   }
   d.remove(binDir(d));
-  d.remove(originalFile(d));
-  return text === null ? `no settings file at ${file}; removed installed files` : `restored: ${file}\nremoved: ${binDir(d)}`;
+  const head = text === null ? `no settings file at ${file}; removed installed files` : `restored: ${file}\nremoved: ${binDir(d)}`;
+  return [head, ...notes].join("\n");
 }

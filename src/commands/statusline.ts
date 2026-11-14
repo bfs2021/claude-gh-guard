@@ -48,6 +48,15 @@ function compute(cwd: string, d: Deps, ascii: boolean, color: boolean): string {
   return render(evaluate("status", facts), facts.push, { ascii, color });
 }
 
+// A bare "bash" on Windows can be WSL's System32 launcher, so only trust it under Git Bash itself.
+function gitBash(d: Deps): string | null {
+  if (d.env.CLAUDE_CODE_GIT_BASH_PATH) return d.env.CLAUDE_CODE_GIT_BASH_PATH;
+  if (d.env.MSYSTEM) return "bash";
+  const pf = d.env.ProgramFiles;
+  const candidate = pf ? `${pf}\\Git\\bin\\bash.exe` : null;
+  return candidate && d.mtime(candidate) !== null ? candidate : null;
+}
+
 export function runStatusline(stdin: string, argv: string[], d: Deps): string {
   const ascii = argv.includes("--ascii") || d.env.GH_GUARD_ASCII === "1";
   const color = !d.env.NO_COLOR;
@@ -113,7 +122,8 @@ export function runStatusline(stdin: string, argv: string[], d: Deps): string {
   if (d.platform === "win32") {
     // Claude Code runs its own commands through Git Bash on Windows, so the wrapped
     // command was written for bash. Fall back to cmd.exe only if bash cannot start.
-    r = run("bash", ["-c", after]);
+    const bash = gitBash(d);
+    r = bash ? run(bash, ["-c", after]) : { code: null, stdout: "", stderr: "" };
     if (r.code === null && !r.stdout && !r.stderr) {
       // cmd.exe: pass the command verbatim inside one extra pair of quotes, because
       // libuv escapes with backslashes, which cmd.exe does not understand.

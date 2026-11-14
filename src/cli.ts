@@ -64,6 +64,6 @@ export async function main(argv: string[]): Promise<number> {
   }
 }
 
-if (/^(cli\.(js|ts)|claude-gh-guard)$/.test(path.basename(process.argv[1] ?? ""))) {
+if (/^(cli\.(m?js|ts)|claude-gh-guard)$/.test(path.basename(process.argv[1] ?? ""))) {
   main(process.argv.slice(2)).then((code) => process.exit(code), () => process.exit(0));
 }

@@ -146,7 +146,7 @@ test("--after prepends existing output byte-exact, including quotes and pipes", 
 test("--after on win32 runs bash -c first", () => {
   const calls: { cmd: string; args: string[]; input?: string; timeoutMs?: number; verbatim?: boolean }[] = [];
   const cmd = `node -e "console.log(1)" | cat`;
-  const w = fakeDeps({ env, platform: "win32", files: files("git@github.com:alice/x.git"),
+  const w = fakeDeps({ env: { ...env, MSYSTEM: "MINGW64" }, platform: "win32", files: files("git@github.com:alice/x.git"),
     exec: (c, args, o) => { calls.push({ cmd: c, args, input: o?.input, timeoutMs: o?.timeoutMs, verbatim: o?.verbatim }); return { code: 0, stdout: "x\n", stderr: "" }; } });
   assert.equal(runStatusline(stdin, ["--after", cmd], w), "x | 🟢 gh:alice");
   const afters = calls.filter((c) => c.args.includes(cmd) || c.args.includes(`"${cmd}"`));
@@ -160,7 +160,7 @@ test("--after on win32 falls back to cmd.exe only when bash fails to start", () 
   const cmd = `echo "a b"`;
   const calls: { cmd: string; args: string[]; verbatim?: boolean }[] = [];
   const mkw = (bash: { code: number | null; stdout: string; stderr: string }) =>
-    fakeDeps({ env, platform: "win32", files: files("git@github.com:alice/x.git"),
+    fakeDeps({ env: { ...env, MSYSTEM: "MINGW64" }, platform: "win32", files: files("git@github.com:alice/x.git"),
       exec: (c, args, o) => {
         calls.push({ cmd: c, args, verbatim: o?.verbatim });
         return c === "bash" ? bash : c === "cmd.exe" ? { code: 0, stdout: "viacmd", stderr: "" } : { code: 1, stdout: "", stderr: "" };
@@ -176,9 +176,29 @@ test("--after on win32 falls back to cmd.exe only when bash fails to start", () 
   assert.ok(!calls.some((c) => c.cmd === "cmd.exe"));
   // exec throwing counts as failed to start
   calls.length = 0;
-  const thrower = fakeDeps({ env, platform: "win32", files: files("git@github.com:alice/x.git"),
+  const thrower = fakeDeps({ env: { ...env, MSYSTEM: "MINGW64" }, platform: "win32", files: files("git@github.com:alice/x.git"),
     exec: (c) => { if (c === "bash") throw new Error("ENOENT"); return { code: 0, stdout: "viacmd", stderr: "" }; } });
   assert.equal(runStatusline(stdin, ["--after", cmd], thrower), "viacmd | 🟢 gh:alice");
+});
+
+test("--after on win32 picks the bash to trust", () => {
+  const f = files("git@github.com:alice/x.git");
+  const run = (envx: Record<string, string>, extra: Record<string, string> = {}) => {
+    const calls: string[] = [];
+    const d = fakeDeps({ env: { ...env, ...envx }, platform: "win32", files: { ...f, ...extra },
+      exec: (c) => { calls.push(c); return { code: 0, stdout: "o", stderr: "" }; } });
+    runStatusline(stdin, ["--after", "x"], d);
+    return calls.filter((c) => c !== "git");
+  };
+  const pf = "C:\\Program Files";
+  const pfBash = pf + "\\Git\\bin\\bash.exe";
+  const custom = "D:\\g\\bash.exe";
+  assert.deepEqual(run({ CLAUDE_CODE_GIT_BASH_PATH: custom, MSYSTEM: "MINGW64" }), [custom]);
+  assert.deepEqual(run({ MSYSTEM: "MINGW64" }), ["bash"]);
+  assert.deepEqual(run({ ProgramFiles: pf }, { [pfBash]: "" }), [pfBash]);
+  // no Git Bash anywhere: straight to cmd.exe, never a bare (possibly WSL) bash
+  assert.deepEqual(run({ ProgramFiles: pf }), ["cmd.exe"]);
+  assert.deepEqual(run({}), ["cmd.exe"]);
 });
 
 test("--after failure -> ours alone", () => {
