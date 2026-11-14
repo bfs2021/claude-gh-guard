@@ -50,6 +50,19 @@ Only a definite MISMATCH blocks. Every other state, and any internal error, lets
 
 Use `--ascii` or `GH_GUARD_ASCII=1` for the ASCII glyphs; `NO_COLOR` disables colors.
 
+## Claude account
+
+The status line also shows which Claude account Claude Code is logged in with, so you can tell your Claude configs apart at a glance:
+
+```
+🟢 gh:your-login · claude:company.example (max)
+```
+
+- A Team or Enterprise organization is shown by its name; a personal plan by its email domain, plus the plan.
+- Read from `$CLAUDE_CONFIG_DIR/.claude.json` if that variable is set, else `~/.claude.json`.
+- Display only: the Claude account is never judged and never blocks anything. MCP connectors follow the Claude account, so this also tells you which set of connectors you are using.
+- `doctor` prints the full email and organization.
+
 ## Which identity each command is checked against
 
 | Command | Identity that matters | How it is determined |

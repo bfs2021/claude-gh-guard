@@ -4,6 +4,7 @@ import { gatherFacts } from "../gather.ts";
 import { evaluate } from "../evaluate.ts";
 import { effectiveEmail } from "../gitRepo.ts";
 import { readLearned } from "../learn.ts";
+import { readClaudeAccount, claudeStatePath } from "../claudeAccount.ts";
 
 export function runDoctor(cwd: string, d: Deps): string {
   const t0 = Date.now();
@@ -30,6 +31,7 @@ export function runDoctor(cwd: string, d: Deps): string {
   if (facts.push) push = facts.push.via === "unknown" ? "unknown" : `${facts.push.login ?? "unknown"} via ${facts.push.via}`;
 
   const email = repo ? effectiveEmail(repo, d) : { email: null, source: "none" };
+  const claude = readClaudeAccount(d);
 
   const out = [
     `gh config: ${ghConfigDir(d)}${facts.hosts ? ` (${facts.hosts.hostsFile})` : " (hosts.yml not found)"}`,
@@ -41,6 +43,7 @@ export function runDoctor(cwd: string, d: Deps): string {
     `push identity: ${push}`,
     `expected: ${expected}`,
     `state: ${v.state}${v.problems.length ? ` - ${v.problems.join("; ")}` : ""}`,
+    `claude: ${claude ? [claude.email, claude.org].filter(Boolean).join(", ") + (claude.plan ? ` (${claude.plan})` : "") : "(not found)"} [${claudeStatePath(d)}]`,
     `time: ${ms} ms`,
   ];
 
