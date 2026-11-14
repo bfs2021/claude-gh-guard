@@ -13,6 +13,16 @@ import type { PushIdentity } from "./pushIdentity.ts";
 import { resolveExpected } from "./evaluate.ts";
 import type { Expected, Facts } from "./evaluate.ts";
 
+/** The URL git pushes to: git itself resolves pushurl/insteadOf/pushInsteadOf; without spawning, honor pushurl. */
+function pushUrl(repo: Repo, name: string, d: Deps, allowSpawn: boolean): string | null {
+  if (allowSpawn) {
+    const r = d.exec("git", ["remote", "get-url", "--push", name], { cwd: repo.workTree, timeoutMs: 2000 });
+    const out = r.code === 0 ? r.stdout.trim() : "";
+    if (out) return out;
+  }
+  return repo.config.get(`remote.${name}.pushurl`)?.at(-1) || remoteUrl(repo, name);
+}
+
 export function gatherFacts(
   cwd: string,
   d: Deps,
@@ -51,7 +61,7 @@ export function gatherFacts(
   }
 
   const remoteName = opts.remoteName ?? pushRemoteName(repo);
-  const url = remoteUrl(repo, remoteName);
+  const url = opts.skipPush ? remoteUrl(repo, remoteName) : pushUrl(repo, remoteName, d, opts.allowSpawn);
   const sshConfigText = d.readFile(path.join(d.home, ".ssh", "config"));
   const remote = opts.remoteOverride ?? (url === null ? null : parseRemoteUrl(url, sshConfigText));
   const email = effectiveEmail(repo, d).email;

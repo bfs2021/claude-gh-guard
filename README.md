@@ -49,9 +49,9 @@ Use `--ascii` or `GH_GUARD_ASCII=1` for the ASCII glyphs; `NO_COLOR` disables co
 | Command | Identity that matters | How it is determined |
 |---|---|---|
 | `git commit` | author email | effective email, including `git -c user.email=...` and `GIT_AUTHOR_EMAIL=...` overrides |
-| `git push` over SSH | owner of the SSH key | `ssh -T` for the host (or alias) |
-| `git push` over HTTPS with the gh credential helper | active gh account | `gh` `hosts.yml` |
-| `git push` over HTTPS with another helper | not checked | treated as UNKNOWN |
+| `git push` over SSH | owner of the SSH key | `ssh -T` for the host (or alias) of the URL git pushes to (`pushurl`, `insteadOf` applied); unknown with a custom SSH command |
+| `git push` over HTTPS with the gh credential helper first | active gh account | `gh` `hosts.yml` |
+| `git push` over HTTPS with another helper first | not checked | push identity unknown |
 | `gh pr create` (including `-R [HOST/]OWNER/REPO`) | active gh account | `gh` `hosts.yml` |
 
 ## How the expected account is decided
@@ -100,9 +100,15 @@ Prints, for the current directory: gh config location, logins, active account, r
 
 ## Known gaps
 
+None of these ever block a command; they only limit what the guard can check.
+
 - Commands inside subshells or groups (`( ... )`, `{ ...; }`) or behind `env` / `command` prefixes are not inspected.
-- GitHub Enterprise hosts are not learned automatically; use a `~/.gh-guard.json` profile.
-- HTTPS pushes through Git Credential Manager (or any non-gh helper) are not identity-checked.
+- Only `github.com` is tracked. GitHub Enterprise and other hosts are UNTRACKED (never blocked); profiles do not change that today.
+- Custom SSH commands (`core.sshCommand`, `GIT_SSH`, `GIT_SSH_COMMAND`) can pick any key, so the push identity is unknown (not blocked).
+- HTTPS pushes whose first credential helper is not the gh helper (for example Git Credential Manager) have an unknown push identity (not blocked).
+- The status line never spawns `ssh`, so it shows the SSH push identity only after the hook or `doctor` has probed it once. Run `claude-gh-guard doctor` in the repo once to prime it.
+- The status line judges the push remote, while `gh pr create` is judged against the PR base repo (a `gh-resolved` remote, else `upstream`, else `origin`). In fork workflows the two can differ.
+- On Windows without Git Bash, a wrapped status line is run through `cmd.exe`; a wrapped command containing quotes may not run there.
 
 ## License
 

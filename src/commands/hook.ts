@@ -41,7 +41,8 @@ export async function runHook(stdin: string, d: Deps): Promise<{ stdout: string;
     for (const seg of segs) {
       const opts: { allowSpawn: boolean; remoteName?: string; remoteOverride?: Remote; skipPush?: boolean } = {
         allowSpawn: true,
-        skipPush: seg.kind === "commit",
+        // commit and pr judge the repo, not the push path: no ssh probe, configured URL
+        skipPush: seg.kind === "commit" || seg.kind === "pr",
       };
       let explicit = false;
       if (seg.remoteUrl !== undefined) {
@@ -70,7 +71,15 @@ export async function runHook(stdin: string, d: Deps): Promise<{ stdout: string;
           const entry = await learnRepo(g.needsLearn.owner, g.needsLearn.repo, logins, d, remaining);
           if (entry) {
             writeLearned(d, `${g.needsLearn.owner}/${g.needsLearn.repo}`, entry);
-            g = gatherFacts(seg.cwd, d, { ...opts, allowSpawn: false });
+            // re-resolve only the expectation: keep the remote and push identity already probed
+            const prev = g.facts;
+            g = gatherFacts(seg.cwd, d, {
+              ...opts,
+              allowSpawn: false,
+              skipPush: true,
+              remoteOverride: prev.remote ?? undefined,
+            });
+            g.facts.push = prev.push;
           }
         }
       }

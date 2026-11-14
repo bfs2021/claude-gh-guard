@@ -17,6 +17,7 @@ function setup(opts: {
   commits?: unknown[] | number;
   now?: number;
   rateLimit403?: boolean;
+  headers403?: Record<string, string>;
   commitsReject?: boolean;
   tokenFail?: string;
 }) {
@@ -37,7 +38,10 @@ function setup(opts: {
         const login = headers.Authorization!.replace("Bearer gho_", "");
         const v = opts.push[login];
         if (v === 1) throw new Error("boom");
-        if (typeof v === "number") return res(v, {}, v === 403 && opts.rateLimit403 ? { "x-ratelimit-remaining": "0" } : undefined);
+        if (typeof v === "number") {
+          const h = v === 403 ? (opts.rateLimit403 ? { "x-ratelimit-remaining": "0" } : opts.headers403) : undefined;
+          return res(v, {}, h);
+        }
         return res(200, { permissions: { push: v === true } });
       }
       if (url === COMMITS) {
@@ -93,7 +97,7 @@ test("two pushers, tie -> ambiguous", async () => {
 });
 
 test("404 for both -> none", async () => {
-  const { d } = setup({ push: { A: 404, B: 403 } });
+  const { d } = setup({ push: { A: 404, B: 404 } });
   const e = await learnRepo("org", "repo", ["A", "B"], d, 1000);
   assert.equal(e?.basis, "none");
   assert.deepEqual(e?.pushers, []);
@@ -166,11 +170,26 @@ test("B 503 or 429 -> null", async () => {
   }
 });
 
-test("403 rate limited -> null; plain 403 -> single", async () => {
+test("403 rate limited -> null; plain 403 -> null (never 'cannot push')", async () => {
   const rl = setup({ push: { A: true, B: 403 }, rateLimit403: true });
   assert.equal(await learnRepo("org", "repo", ["A", "B"], rl.d, 1000), null);
   const plain = setup({ push: { A: true, B: 403 } });
-  const e = await learnRepo("org", "repo", ["A", "B"], plain.d, 1000);
+  assert.equal(await learnRepo("org", "repo", ["A", "B"], plain.d, 1000), null);
+});
+
+test("SAML-style 403 with rate limit left -> null", async () => {
+  const { d } = setup({ push: { A: true, B: 403 }, headers403: { "x-ratelimit-remaining": "4000" } });
+  assert.equal(await learnRepo("org", "repo", ["A", "B"], d, 1000), null);
+});
+
+test("401 -> null", async () => {
+  const { d } = setup({ push: { A: true, B: 401 } });
+  assert.equal(await learnRepo("org", "repo", ["A", "B"], d, 1000), null);
+});
+
+test("404 means cannot push -> single", async () => {
+  const { d } = setup({ push: { A: true, B: 404 } });
+  const e = await learnRepo("org", "repo", ["A", "B"], d, 1000);
   assert.equal(e?.basis, "single");
   assert.equal(e?.expected, "A");
 });

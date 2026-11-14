@@ -180,3 +180,114 @@ test("pr -R outside a git repo still evaluates", async () => {
   const j = JSON.parse((await runHook(input("gh pr create -R corp/app"), d)).stdout);
   assert.equal(j.hookSpecificOutput.permissionDecision, "deny");
 });
+
+const sshCfg = path.join(home, ".ssh", "config");
+const ALIASES = "Host github-personal github-work\n  HostName github.com\n";
+
+// --- push identity must follow what git actually uses (no false denies) ---
+const workRepoPersonalKey = (extra: { env?: Record<string, string>; cfg?: string; git?: (args: string[]) => string | null } = {}) => {
+  const sshCalls: string[] = [];
+  const d = fakeDeps({
+    env: extra.env ?? {},
+    files: files("git@github.com:corp/app.git", { [learnedPath]: learned("corp/app", "bob-work") }, extra.cfg ?? ""),
+    exec: (cmd, args) => {
+      if (cmd === "ssh") {
+        sshCalls.push(args[args.length - 1]!);
+        return { code: 1, stdout: "", stderr: "Hi alice! You have successfully authenticated" };
+      }
+      const out = cmd === "git" && extra.git ? extra.git(args) : null;
+      return out === null ? { code: 1, stdout: "", stderr: "" } : { code: 0, stdout: out, stderr: "" };
+    },
+  });
+  return { d, sshCalls };
+};
+
+test("core.sshCommand in repo config → push not denied", async () => {
+  const { d, sshCalls } = workRepoPersonalKey({ cfg: `[core]\n\tsshCommand = ssh -i ~/.ssh/work_key\n` });
+  assert.ok(!(await runHook(input("git push origin main"), d)).stdout.includes("deny"));
+  assert.deepEqual(sshCalls, []);
+});
+
+test("global core.sshCommand (git config stub) → push not denied", async () => {
+  const { d } = workRepoPersonalKey({ git: (a) => (a.join(" ") === "config core.sshCommand" ? "ssh -i ~/.ssh/work_key\n" : null) });
+  assert.ok(!(await runHook(input("git push origin main"), d)).stdout.includes("deny"));
+});
+
+test("GIT_SSH_COMMAND env → push not denied, also for an explicit push URL", async () => {
+  const { d } = workRepoPersonalKey({ env: { GIT_SSH_COMMAND: "ssh -i ~/.ssh/work_key" } });
+  assert.ok(!(await runHook(input("git push origin main"), d)).stdout.includes("deny"));
+  assert.ok(!(await runHook(input("git push git@github.com:corp/app.git main"), d)).stdout.includes("deny"));
+});
+
+test("push URL resolved by git (pushurl/insteadOf): identity probed on the resolved alias", async () => {
+  // config url is https (unknown helper → no deny); git resolves the push URL to the personal alias
+  const sshCalls: string[] = [];
+  const d = fakeDeps({
+    files: files("https://github.com/corp/app.git", { [learnedPath]: learned("corp/app", "bob-work"), [sshCfg]: ALIASES }),
+    exec: (cmd, args, opts) => {
+      if (cmd === "ssh") {
+        sshCalls.push(args[args.length - 1]!);
+        return { code: 1, stdout: "", stderr: "Hi alice!" };
+      }
+      if (cmd === "git" && args.join(" ") === "remote get-url --push origin") {
+        assert.equal(opts?.cwd, R);
+        return { code: 0, stdout: "git@github-personal:corp/app.git\n", stderr: "" };
+      }
+      return { code: 1, stdout: "", stderr: "" };
+    },
+  });
+  const j = JSON.parse((await runHook(input("git push origin main"), d)).stdout);
+  assert.equal(j.hookSpecificOutput.permissionDecision, "deny");
+  assert.deepEqual(sshCalls, ["git@github-personal"]);
+});
+
+test("push URL resolved to the work alias → not denied though the config url is personal", async () => {
+  const d = fakeDeps({
+    files: files("git@github-personal:corp/app.git", { [learnedPath]: learned("corp/app", "bob-work"), [sshCfg]: ALIASES }),
+    exec: (cmd, args) => {
+      if (cmd === "ssh") {
+        const who = args[args.length - 1] === "git@github-work" ? "bob-work" : "alice";
+        return { code: 1, stdout: "", stderr: `Hi ${who}!` };
+      }
+      if (cmd === "git" && args.join(" ") === "remote get-url --push origin") {
+        return { code: 0, stdout: "git@github-work:corp/app.git\n", stderr: "" };
+      }
+      return { code: 1, stdout: "", stderr: "" };
+    },
+  });
+  assert.equal((await runHook(input("git push origin main"), d)).stdout, "");
+});
+
+const learnFetch = (async (_u: string, init: RequestInit) => {
+  const tok = (init.headers as Record<string, string>).Authorization!;
+  return new Response(JSON.stringify({ permissions: { push: tok.endsWith("bob-work") } }), { status: 200 });
+}) as unknown as typeof fetch;
+
+test("after learning, push is judged on the git-resolved URL (not re-read from config)", async () => {
+  const d = fakeDeps({
+    files: files("https://github.com/corp/app.git", { [sshCfg]: ALIASES }),
+    fetch: learnFetch,
+    exec: (cmd, args) => {
+      if (cmd === "gh") return ghTokens(cmd, args);
+      if (cmd === "ssh") return { code: 1, stdout: "", stderr: "Hi alice!" };
+      if (cmd === "git" && args.join(" ") === "remote get-url --push origin") {
+        return { code: 0, stdout: "git@github-personal:corp/app.git\n", stderr: "" };
+      }
+      return { code: 1, stdout: "", stderr: "" };
+    },
+  });
+  const j = JSON.parse((await runHook(input("git push origin main"), d)).stdout);
+  assert.equal(j.hookSpecificOutput.permissionDecision, "deny");
+});
+
+test("after learning, a failed ssh probe is not replaced by the cached login", async () => {
+  const d = fakeDeps({
+    files: files("git@github.com:corp/app.git", {
+      [path.join(home, ".claude-gh-guard", "ssh.json")]: JSON.stringify({ "github.com": { login: "alice", key: 0 } }),
+    }),
+    fetch: learnFetch,
+    exec: (cmd, args) => (cmd === "gh" ? ghTokens(cmd, args) : { code: 255, stdout: "", stderr: "timeout" }),
+  });
+  const r = await runHook(input("git push origin main"), d);
+  assert.ok(!r.stdout.includes("deny"), r.stdout);
+});

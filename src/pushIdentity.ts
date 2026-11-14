@@ -37,16 +37,29 @@ function readCache(file: string, d: Deps): SshCache {
   }
 }
 
+/** A custom ssh program (env or core.sshCommand) may pick any key: we cannot know whose. */
+function customSsh(repo: Repo, d: Deps, allowSpawn: boolean): boolean {
+  if (d.env.GIT_SSH || d.env.GIT_SSH_COMMAND) return true;
+  if ((repo.config.get("core.sshcommand")?.at(-1) ?? "") !== "") return true;
+  if (!allowSpawn) return false;
+  // global/system/include config: only git itself knows
+  const r = d.exec("git", ["config", "core.sshCommand"], { cwd: repo.workTree, timeoutMs: 2000 });
+  return r.code === 0 && r.stdout.trim() !== "";
+}
+
 function sshIdentity(remote: Remote, d: Deps, allowSpawn: boolean): PushIdentity {
   const target = remote.sshAlias ?? remote.host;
   const k = target.toLowerCase();
   const file = path.join(stateDir(d), "ssh.json");
   const stamp = sshKeyStamp(d);
   const cache = readCache(file, d);
-  const hit = cache[k];
-  if (hit && typeof hit.login === "string" && hit.key === stamp) return { via: "ssh", login: hit.login };
-  if (!allowSpawn) return { via: "ssh", login: null };
+  if (!allowSpawn) {
+    // status line: the cache is all we have (the agent may have changed since; the hook re-probes)
+    const hit = cache[k];
+    return { via: "ssh", login: hit && typeof hit.login === "string" && hit.key === stamp ? hit.login : null };
+  }
 
+  // hook/doctor: always ask ssh, since the agent's loaded keys are invisible to the cache key
   const r = d.exec("ssh", ["-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=3", `git@${target}`], { timeoutMs: 3000 });
   const login = parseSshHello(r.stderr) ?? parseSshHello(r.stdout);
   if (!login) return { via: "ssh", login: null };
@@ -59,10 +72,17 @@ function sshIdentity(remote: Remote, d: Deps, allowSpawn: boolean): PushIdentity
   return { via: "ssh", login };
 }
 
+/** Values of a multi-valued key in config order, applying git's rule that an empty value clears the list so far. */
 function helpers(d: Deps, repo: Repo, key: string): string[] {
   const r = d.exec("git", ["config", "--get-all", key], { cwd: repo.workTree, timeoutMs: 2000 });
   if (r.code !== 0) return [];
-  return r.stdout.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+  let list: string[] = [];
+  for (const raw of r.stdout.replace(/\r?\n$/, "").split(/\r?\n/)) {
+    const v = raw.trim();
+    if (v === "") list = [];
+    else list.push(v);
+  }
+  return list;
 }
 
 export function pushIdentity(
@@ -72,11 +92,15 @@ export function pushIdentity(
   d: Deps,
   opts: { allowSpawn: boolean },
 ): PushIdentity {
-  if (remote.protocol === "ssh") return sshIdentity(remote, d, opts.allowSpawn);
-  // git uses the most specific credential.<url>.helper if set, else the generic one
+  if (remote.protocol === "ssh") {
+    if (customSsh(repo, d, opts.allowSpawn)) return { via: "unknown" };
+    return sshIdentity(remote, d, opts.allowSpawn);
+  }
+  // the most specific credential.<url>.helper list wins if non-empty, else the generic one;
+  // git asks helpers in order, so only a gh helper that comes first decides the identity
   const specific = helpers(d, repo, `credential.https://${remote.host.toLowerCase()}.helper`);
   const list = specific.length > 0 ? specific : helpers(d, repo, "credential.helper");
-  if (list.some((h) => h.includes("auth git-credential"))) {
+  if (list[0]?.includes("auth git-credential")) {
     return { via: "gh", login: hosts?.active ?? null };
   }
   return { via: "unknown" };

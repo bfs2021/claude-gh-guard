@@ -93,14 +93,10 @@ export async function learnRepo(
       if (t.code !== 0 || !token) return null;
       if (Date.now() - start >= timeoutMs) return null;
       const r = await api(base, token);
-      if (
-        r.status === 429 ||
-        r.status >= 500 ||
-        (r.status === 403 && r.headers.get("x-ratelimit-remaining") === "0")
-      ) {
-        return null;
-      }
-      if (r.status !== 200) continue;
+      // Only 404 (or 200 without push) means "cannot push". 401/403 (bad token, SAML SSO
+      // not authorized, rate limit), 429, 5xx and anything else unexpected: give up.
+      if (r.status === 404) continue;
+      if (r.status !== 200) return null;
       const body = (await Promise.race([r.json(), aborted])) as { permissions?: { push?: boolean } };
       if (body?.permissions?.push === true) {
         pushers.push(login);
