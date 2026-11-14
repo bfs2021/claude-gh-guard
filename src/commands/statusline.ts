@@ -7,6 +7,7 @@ import { gatherFacts } from "../gather.ts";
 import { evaluate } from "../evaluate.ts";
 import { render } from "../render.ts";
 import { findRepo } from "../gitRepo.ts";
+import { readClaudeAccount, formatClaudeAccount } from "../claudeAccount.ts";
 
 const sha1 = (s: string) => createHash("sha1").update(s).digest("hex");
 
@@ -107,6 +108,13 @@ export function runStatusline(stdin: string, argv: string[], d: Deps): string {
     logError(d, e);
     const text = ascii ? "[?] gh:? (error)" : "⚪ gh:? (error)";
     ours = color ? `[37m${text}[0m` : text;
+  }
+
+  // Read outside the render cache: Claude Code rewrites .claude.json often, and the account can change any time.
+  const account = readClaudeAccount(d);
+  if (account) {
+    const text = `${ascii ? "|" : "·"} ${formatClaudeAccount(account)}`;
+    ours += color ? ` \x1b[2m${text}\x1b[0m` : ` ${text}`;
   }
 
   if (after === undefined) return ours;
