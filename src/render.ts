@@ -6,7 +6,7 @@ const GLYPH = {
   MISMATCH: ["🔴", "[X]"],
   AMBIGUOUS: ["🟡", "[~]"],
   UNKNOWN: ["⚪", "[?]"],
-  UNTRACKED: ["⚪", "[-]"],
+  UNTRACKED: ["⚪", "[?]"],
   UNAUTH: ["⚠️", "[!]"],
 } as const;
 

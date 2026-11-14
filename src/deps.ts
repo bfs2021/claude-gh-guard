@@ -15,7 +15,7 @@ export interface Deps {
   exec(
     cmd: string,
     args: string[],
-    opts?: { cwd?: string; timeoutMs?: number; input?: string; env?: NodeJS.ProcessEnv },
+    opts?: { cwd?: string; timeoutMs?: number; input?: string; env?: NodeJS.ProcessEnv; verbatim?: boolean },
   ): { code: number | null; stdout: string; stderr: string };
   fetch: typeof fetch;
   spawnDetached(args: string[]): void;
@@ -54,6 +54,7 @@ export function realDeps(): Deps {
         env: opts.env ?? process.env,
         encoding: "utf8",
         windowsHide: true,
+        windowsVerbatimArguments: opts.verbatim,
       });
       return { code: r.status, stdout: r.stdout ?? "", stderr: r.stderr ?? "" };
     },

@@ -34,3 +34,13 @@ test("render color wraps in ANSI", () => {
   assert.equal(render(v("MATCH", "a", "a"), null, { ascii: false, color: true }), "\x1b[32m🟢 gh:a\x1b[0m");
   assert.equal(render(v("MISMATCH", "a", "b"), null, { ascii: false, color: true }), "\x1b[31m🔴 gh:a ≠ b\x1b[0m");
 });
+
+test("render ascii for every state", () => {
+  const a = { ascii: true, color: false };
+  assert.equal(render(v("MATCH", "a", "a"), null, a), "[OK] gh:a");
+  assert.equal(render(v("MISMATCH", "a", "b"), null, a), "[X] gh:a ≠ b");
+  assert.equal(render(v("AMBIGUOUS", "a"), null, a), "[~] gh:a (ambiguous)");
+  assert.equal(render(v("UNKNOWN", "a"), null, a), "[?] gh:a (?)");
+  assert.equal(render(v("UNTRACKED", "a"), null, a), "[?] gh:a (no-remote)");
+  assert.equal(render(v("UNAUTH", null), null, a), "[!] gh:not-logged-in");
+});

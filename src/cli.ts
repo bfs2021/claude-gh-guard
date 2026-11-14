@@ -26,8 +26,9 @@ function logError(d: Deps, e: unknown): void {
 }
 
 export async function main(argv: string[]): Promise<number> {
-  const d = realDeps();
+  let d: Deps | null = null;
   try {
+    d = realDeps();
     const [cmd, ...rest] = argv;
     switch (cmd) {
       case "statusline":
@@ -47,11 +48,11 @@ export async function main(argv: string[]): Promise<number> {
         return 0;
     }
   } catch (e) {
-    logError(d, e);
+    if (d) logError(d, e);
     return 0;
   }
 }
 
 if (/^(cli\.(js|ts)|claude-gh-guard)$/.test(path.basename(process.argv[1] ?? ""))) {
-  main(process.argv.slice(2)).then((code) => process.exit(code));
+  main(process.argv.slice(2)).then((code) => process.exit(code), () => process.exit(0));
 }

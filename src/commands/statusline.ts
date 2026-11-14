@@ -67,8 +67,14 @@ export function runStatusline(stdin: string, argv: string[], d: Deps): string {
       path.join(d.home, ".gh-guard.json"),
       path.join(stateDir(d), "learned.json"),
       path.join(stateDir(d), "ssh.json"),
+      path.join(d.home, ".ssh", "config"),
+      ...(d.env.GIT_CONFIG_GLOBAL ? [d.env.GIT_CONFIG_GLOBAL] : []),
+      d.env.XDG_CONFIG_HOME
+        ? path.join(d.env.XDG_CONFIG_HOME, "git", "config")
+        : path.join(d.home, ".config", "git", "config"),
     ];
-    const key = [Number(ascii), Number(color), ...files.map((f) => d.mtime(f) ?? "-")].join("|");
+    // The time bucket bounds staleness (and lets learning retry) to 10 minutes.
+    const key = [Math.floor(d.now() / 600000), Number(ascii), Number(color), ...files.map((f) => d.mtime(f) ?? "-")].join("|");
     const cacheFile = path.join(cacheDir(d), `${sha1(workTree)}.json`);
     let hit: string | null = null;
     try {
@@ -87,16 +93,29 @@ export function runStatusline(stdin: string, argv: string[], d: Deps): string {
         // cache is best-effort
       }
     }
-  } catch {
-    ours = "";
+  } catch (e) {
+    try {
+      const file = path.join(stateDir(d), "error.log");
+      const msg = e instanceof Error ? (e.stack ?? e.message) : String(e);
+      d.writeFile(file, (d.readFile(file) ?? "") + `${new Date(d.now()).toISOString()} statusline: ${msg}
+`);
+    } catch {
+      // logging is best-effort
+    }
+    const text = ascii ? "[?] gh:? (error)" : "⚪ gh:? (error)";
+    ours = color ? `[37m${text}[0m` : text;
   }
 
   if (after === undefined) return ours;
-  const [cmd, args]: [string, string[]] =
-    d.platform === "win32" ? ["cmd.exe", ["/d", "/s", "/c", after]] : ["/bin/sh", ["-c", after]];
+  // On win32 pass the command verbatim inside one extra pair of quotes: libuv's
+  // default escaping uses backslashes, which cmd.exe does not understand.
+  const win = d.platform === "win32";
+  const [cmd, args]: [string, string[]] = win
+    ? ["cmd.exe", ["/d", "/s", "/c", `"${after}"`]]
+    : ["/bin/sh", ["-c", after]];
   let theirs = "";
   try {
-    const r = d.exec(cmd, args, { input: stdin, timeoutMs: 2000 });
+    const r = d.exec(cmd, args, { input: stdin, timeoutMs: 2000, verbatim: win });
     if (r.code === 0) theirs = r.stdout.trim();
   } catch {
     // ignore
