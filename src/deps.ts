@@ -12,6 +12,8 @@ export interface Deps {
   readFile(p: string): string | null;
   writeFile(p: string, s: string): void;
   mtime(p: string): number | null;
+  /** Remove a file or directory tree; missing paths are ignored. */
+  remove(p: string): void;
   exec(
     cmd: string,
     args: string[],
@@ -45,6 +47,9 @@ export function realDeps(): Deps {
       } catch {
         return null;
       }
+    },
+    remove(p) {
+      fs.rmSync(p, { recursive: true, force: true });
     },
     exec(cmd, args, opts = {}) {
       const r = spawnSync(cmd, args, {

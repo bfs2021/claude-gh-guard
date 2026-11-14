@@ -101,18 +101,27 @@ export function runStatusline(stdin: string, argv: string[], d: Deps): string {
   }
 
   if (after === undefined) return ours;
-  // On win32 pass the command verbatim inside one extra pair of quotes: libuv's
-  // default escaping uses backslashes, which cmd.exe does not understand.
-  const win = d.platform === "win32";
-  const [cmd, args]: [string, string[]] = win
-    ? ["cmd.exe", ["/d", "/s", "/c", `"${after}"`]]
-    : ["/bin/sh", ["-c", after]];
   let theirs = "";
-  try {
-    const r = d.exec(cmd, args, { input: stdin, timeoutMs: 2000, verbatim: win });
-    if (r.code === 0) theirs = r.stdout.trim();
-  } catch {
-    // ignore
+  const run = (cmd: string, args: string[], verbatim?: boolean) => {
+    try {
+      return d.exec(cmd, args, { input: stdin, timeoutMs: 2000, verbatim });
+    } catch {
+      return { code: null, stdout: "", stderr: "" };
+    }
+  };
+  let r: { code: number | null; stdout: string; stderr: string };
+  if (d.platform === "win32") {
+    // Claude Code runs its own commands through Git Bash on Windows, so the wrapped
+    // command was written for bash. Fall back to cmd.exe only if bash cannot start.
+    r = run("bash", ["-c", after]);
+    if (r.code === null && !r.stdout && !r.stderr) {
+      // cmd.exe: pass the command verbatim inside one extra pair of quotes, because
+      // libuv escapes with backslashes, which cmd.exe does not understand.
+      r = run("cmd.exe", ["/d", "/s", "/c", `"${after}"`], true);
+    }
+  } else {
+    r = run("/bin/sh", ["-c", after]);
   }
+  if (r.code === 0) theirs = r.stdout.trim();
   return theirs && ours ? `${theirs} | ${ours}` : theirs || ours;
 }

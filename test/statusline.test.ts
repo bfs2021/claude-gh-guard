@@ -141,13 +141,44 @@ test("--after prepends existing output byte-exact, including quotes and pipes", 
   assert.deepEqual([after.cmd, after.args], ["/bin/sh", ["-c", cmd]]);
   assert.equal(after.input, stdin);
   assert.equal(after.timeoutMs, 2000);
+});
 
+test("--after on win32 runs bash -c first", () => {
+  const calls: { cmd: string; args: string[]; input?: string; timeoutMs?: number; verbatim?: boolean }[] = [];
+  const cmd = `node -e "console.log(1)" | cat`;
   const w = fakeDeps({ env, platform: "win32", files: files("git@github.com:alice/x.git"),
-    exec: (c, args, o) => { calls.push({ cmd: c, args, verbatim: o?.verbatim }); return { code: 0, stdout: "x", stderr: "" }; } });
-  runStatusline(stdin, ["--after", cmd], w);
+    exec: (c, args, o) => { calls.push({ cmd: c, args, input: o?.input, timeoutMs: o?.timeoutMs, verbatim: o?.verbatim }); return { code: 0, stdout: "x\n", stderr: "" }; } });
+  assert.equal(runStatusline(stdin, ["--after", cmd], w), "x | 🟢 gh:alice");
+  const afters = calls.filter((c) => c.args.includes(cmd) || c.args.includes(`"${cmd}"`));
+  assert.equal(afters.length, 1);
+  assert.deepEqual([afters[0]!.cmd, afters[0]!.args], ["bash", ["-c", cmd]]);
+  assert.equal(afters[0]!.input, stdin);
+  assert.equal(afters[0]!.timeoutMs, 2000);
+});
+
+test("--after on win32 falls back to cmd.exe only when bash fails to start", () => {
+  const cmd = `echo "a b"`;
+  const calls: { cmd: string; args: string[]; verbatim?: boolean }[] = [];
+  const mkw = (bash: { code: number | null; stdout: string; stderr: string }) =>
+    fakeDeps({ env, platform: "win32", files: files("git@github.com:alice/x.git"),
+      exec: (c, args, o) => {
+        calls.push({ cmd: c, args, verbatim: o?.verbatim });
+        return c === "bash" ? bash : c === "cmd.exe" ? { code: 0, stdout: "viacmd", stderr: "" } : { code: 1, stdout: "", stderr: "" };
+      } });
+  // spawn failure (code null, no output) -> cmd.exe verbatim
+  assert.equal(runStatusline(stdin, ["--after", cmd], mkw({ code: null, stdout: "", stderr: "" })), "viacmd | 🟢 gh:alice");
   const wc = calls.at(-1)!;
   assert.deepEqual([wc.cmd, wc.args], ["cmd.exe", ["/d", "/s", "/c", `"${cmd}"`]]);
   assert.equal(wc.verbatim, true);
+  // bash started but the command failed -> no fallback
+  calls.length = 0;
+  assert.equal(runStatusline(stdin, ["--after", cmd], mkw({ code: 3, stdout: "", stderr: "boom" })), "🟢 gh:alice");
+  assert.ok(!calls.some((c) => c.cmd === "cmd.exe"));
+  // exec throwing counts as failed to start
+  calls.length = 0;
+  const thrower = fakeDeps({ env, platform: "win32", files: files("git@github.com:alice/x.git"),
+    exec: (c) => { if (c === "bash") throw new Error("ENOENT"); return { code: 0, stdout: "viacmd", stderr: "" }; } });
+  assert.equal(runStatusline(stdin, ["--after", cmd], thrower), "viacmd | 🟢 gh:alice");
 });
 
 test("--after failure -> ours alone", () => {

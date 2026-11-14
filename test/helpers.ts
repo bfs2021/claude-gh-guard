@@ -14,6 +14,10 @@ export function fakeDeps(overrides: Partial<Deps> & { files?: Record<string, str
     readFile: (p) => files.get(path.normalize(p)) ?? null,
     writeFile: (p, s) => { files.set(path.normalize(p), s); },
     mtime: (p) => (files.has(path.normalize(p)) ? 0 : null),
+    remove: (p) => {
+      const n = path.normalize(p);
+      for (const k of [...files.keys()]) if (k === n || k.startsWith(n + path.sep)) files.delete(k);
+    },
     exec: () => ({ code: 1, stdout: "", stderr: "" }),
     fetch: (() => Promise.reject(new Error("fetch not stubbed"))) as typeof fetch,
     spawnDetached: () => {},
