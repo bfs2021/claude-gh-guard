@@ -15,17 +15,59 @@ function tokenize(input: string): string[][] {
   let tokens: string[] = [];
   let cur = "";
   let has = false;
-  const endToken = () => { if (has) tokens.push(cur); cur = ""; has = false; };
-  const endSeg = () => { endToken(); if (tokens.length) segments.push(tokens); tokens = []; };
+  let quoted = false;
+  let skipNext = false;
+  const pending: { delim: string; strip: boolean }[] = [];
+  const endToken = () => {
+    if (has) {
+      if (!quoted && /^(\d*|&)(>>?|<)$/.test(cur)) skipNext = true; // lone redirect operator: drop its target too
+      else if (!quoted && /^(\d*|&)(>>?|<)/.test(cur)) { /* fused redirect, e.g. 2>&1 */ }
+      else if (skipNext) skipNext = false;
+      else tokens.push(cur);
+    }
+    cur = ""; has = false; quoted = false;
+  };
+  const endSeg = () => { endToken(); skipNext = false; if (tokens.length) segments.push(tokens); tokens = []; };
   let i = 0;
   while (i < input.length) {
     const c = input[i];
-    if (c === "'") {
-      has = true; i++;
+    if (c === "<" && input[i + 1] === "<" && input[i + 2] !== "<" && input[i + 2] !== "(") {
+      endToken();
+      i += 2;
+      let strip = false;
+      if (input[i] === "-") { strip = true; i++; }
+      while (input[i] === " " || input[i] === "\t") i++;
+      let delim = "";
+      if (input[i] === "'" || input[i] === '"') {
+        const q = input[i++];
+        while (i < input.length && input[i] !== q) delim += input[i++];
+        i++;
+      } else {
+        while (i < input.length && !/[\s;|&<>()]/.test(input[i])) delim += input[i++];
+      }
+      if (delim) pending.push({ delim, strip });
+    } else if (c === "\n" && pending.length) {
+      endSeg();
+      i++;
+      for (const h of pending) {
+        while (i < input.length) {
+          let end = input.indexOf("\n", i);
+          if (end < 0) end = input.length;
+          let line = input.slice(i, end);
+          i = Math.min(end + 1, input.length);
+          if (line.endsWith("\r")) line = line.slice(0, -1);
+          if ((h.strip ? line.replace(/^\t+/, "") : line) === h.delim) break;
+        }
+      }
+      pending.length = 0;
+    } else if (c === "&" && (input[i + 1] === ">" || (has && (input[i - 1] === ">" || input[i - 1] === "<")))) {
+      cur += c; has = true; i++;
+    } else if (c === "'") {
+      has = true; quoted = true; i++;
       while (i < input.length && input[i] !== "'") cur += input[i++];
       i++;
     } else if (c === '"') {
-      has = true; i++;
+      has = true; quoted = true; i++;
       while (i < input.length && input[i] !== '"') {
         if (input[i] === "\\" && i + 1 < input.length && '"\\$`'.includes(input[i + 1])) { cur += input[i + 1]; i += 2; }
         else cur += input[i++];

@@ -82,3 +82,24 @@ test("empty / unterminated quote don't throw", () => {
   assert.deepEqual(parseCommand("", R), []);
   assert.doesNotThrow(() => parseCommand('git commit -m "abc', R));
 });
+test("heredoc body is not parsed", () => {
+  assert.deepEqual(parseCommand("cat > x.md <<'EOF'\ngit push origin main\nEOF", R), []);
+});
+test("heredoc with apostrophe then real push", () => {
+  const g = parseCommand("cat <<EOF > x\ndon't stop\nEOF\ngit push origin main", R);
+  assert.deepEqual(g.map(x => [x.kind, x.remoteName]), [["push", "origin"]]);
+});
+test("<<- heredoc strips tabs for delimiter", () => {
+  assert.deepEqual(parseCommand("cat <<-EOF\n\tgit push\n\tEOF\ngit commit -m x", R).map(g => g.kind), ["commit"]);
+});
+test("claude-style commit with heredoc message", () => {
+  const cmd = "git commit -m \"$(cat <<'EOF'\nmsg line\n\nCo-Authored-By: X\nEOF\n)\"";
+  assert.deepEqual(parseCommand(cmd, R).map(g => g.kind), ["commit"]);
+});
+test("redirections are not the push remote", () => {
+  assert.equal(parseCommand("git push 2>&1 | tail -5", R)[0].remoteName, undefined);
+  assert.equal(parseCommand("git push >/dev/null", R)[0].remoteName, undefined);
+  assert.equal(parseCommand("git push origin main > out.txt", R)[0].remoteName, "origin");
+  assert.equal(parseCommand("git push -u origin HEAD 2> err.log", R)[0].remoteName, "origin");
+  assert.equal(parseCommand("git push &> all.log origin", R)[0].remoteName, "origin");
+});
