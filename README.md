@@ -4,7 +4,13 @@ Stop Claude Code from committing to your work repo with your personal GitHub acc
 
 It adds two things to Claude Code: a status line segment that always shows which GitHub identity is in play for the current repo, and a `PreToolUse` hook that blocks `git commit`, `git push` and `gh pr create` when the identity is definitely the wrong one. Zero runtime dependencies, Node >= 18.
 
-<!-- TODO: demo GIF -->
+**Right account** — the status line confirms the identity for this repo:
+
+![Status line showing a matching GitHub account](assets/match.png)
+
+**Wrong account** — the status line turns red and `gh pr create` is blocked with the fix:
+
+![Status line showing a mismatch and the hook denying gh pr create](assets/mismatch.png)
 
 ## Install
 
