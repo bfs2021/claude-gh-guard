@@ -4,6 +4,7 @@ import { readGhHosts } from "./ghHosts.ts";
 import { findRepo, effectiveEmail, remoteUrl, pushRemoteName } from "./gitRepo.ts";
 import type { Repo } from "./gitRepo.ts";
 import { parseRemoteUrl } from "./remote.ts";
+import type { Remote } from "./remote.ts";
 import { loadConfig } from "./config.ts";
 import { readLearned, isFresh } from "./learn.ts";
 import type { LearnedEntry } from "./learn.ts";
@@ -15,7 +16,7 @@ import type { Expected, Facts } from "./evaluate.ts";
 export function gatherFacts(
   cwd: string,
   d: Deps,
-  opts: { allowSpawn: boolean; remoteName?: string },
+  opts: { allowSpawn: boolean; remoteName?: string; remoteOverride?: Remote },
 ): { facts: Facts; repo: Repo | null; needsLearn: { owner: string; repo: string } | null } {
   const hosts = readGhHosts(d);
   const logins = hosts?.logins ?? [];
@@ -31,7 +32,7 @@ export function gatherFacts(
   const remoteName = opts.remoteName ?? pushRemoteName(repo);
   const url = remoteUrl(repo, remoteName);
   const sshConfigText = d.readFile(path.join(d.home, ".ssh", "config"));
-  const remote = url === null ? null : parseRemoteUrl(url, sshConfigText);
+  const remote = opts.remoteOverride ?? (url === null ? null : parseRemoteUrl(url, sshConfigText));
   const email = effectiveEmail(repo, d).email;
   const profiles = loadConfig(d).profiles;
 

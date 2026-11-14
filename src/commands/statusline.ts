@@ -2,6 +2,7 @@ import path from "node:path";
 import { createHash } from "node:crypto";
 import type { Deps } from "../deps.ts";
 import { cacheDir, ghConfigDir, stateDir } from "../paths.ts";
+import { logError } from "../errorLog.ts";
 import { gatherFacts } from "../gather.ts";
 import { evaluate } from "../evaluate.ts";
 import { render } from "../render.ts";
@@ -94,14 +95,7 @@ export function runStatusline(stdin: string, argv: string[], d: Deps): string {
       }
     }
   } catch (e) {
-    try {
-      const file = path.join(stateDir(d), "error.log");
-      const msg = e instanceof Error ? (e.stack ?? e.message) : String(e);
-      d.writeFile(file, (d.readFile(file) ?? "") + `${new Date(d.now()).toISOString()} statusline: ${msg}
-`);
-    } catch {
-      // logging is best-effort
-    }
+    logError(d, e);
     const text = ascii ? "[?] gh:? (error)" : "⚪ gh:? (error)";
     ours = color ? `[37m${text}[0m` : text;
   }

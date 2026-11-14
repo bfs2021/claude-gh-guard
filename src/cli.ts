@@ -2,9 +2,10 @@ import fs from "node:fs";
 import path from "node:path";
 import { realDeps } from "./deps.ts";
 import type { Deps } from "./deps.ts";
-import { stateDir } from "./paths.ts";
+import { logError } from "./errorLog.ts";
 import { runStatusline } from "./commands/statusline.ts";
 import { runLearn } from "./commands/learn.ts";
+import { runHook } from "./commands/hook.ts";
 
 function readStdin(): string {
   if (process.stdin.isTTY) return "";
@@ -12,16 +13,6 @@ function readStdin(): string {
     return fs.readFileSync(0, "utf8");
   } catch {
     return "";
-  }
-}
-
-function logError(d: Deps, e: unknown): void {
-  try {
-    const file = path.join(stateDir(d), "error.log");
-    const line = `${new Date(d.now()).toISOString()} ${e instanceof Error ? (e.stack ?? e.message) : String(e)}\n`;
-    d.writeFile(file, (d.readFile(file) ?? "") + line);
-  } catch {
-    // nothing more to do
   }
 }
 
@@ -37,7 +28,11 @@ export async function main(argv: string[]): Promise<number> {
       case "learn":
         await runLearn(rest, d);
         return 0;
-      case "hook":
+      case "hook": {
+        const out = await runHook(readStdin(), d);
+        if (out.stdout) process.stdout.write(out.stdout);
+        return 0;
+      }
       case "init":
       case "uninstall":
       case "doctor":
