@@ -213,3 +213,61 @@ test("uninstall leaves a statusLine the user changed since", () => {
   runUninstall(d);
   assert.deepEqual(read(d).statusLine, { type: "command", command: "mine" });
 });
+
+const binDirPath = path.join(HOME, ".claude-gh-guard", "bin");
+const withStatus = (command: string) => mk(JSON.stringify({ statusLine: { type: "command", command } }));
+
+test("uninstall recovers the original with --ascii before or after --after", () => {
+  for (const cmd of [`${base} statusline --ascii --after 'echo hi'`, `${base} statusline --after 'echo hi' --ascii`]) {
+    const d = withStatus(cmd);
+    d.writeFile(bin, "x");
+    const out = runUninstall(d);
+    assert.deepEqual(read(d).statusLine, { type: "command", command: "echo hi" }, out);
+    assert.equal(d.readFile(bin), null);
+  }
+});
+
+test("uninstall of our bare --ascii status line deletes it", () => {
+  const d = withStatus(`${base} statusline --ascii`);
+  runUninstall(d);
+  assert.equal(read(d).statusLine, undefined);
+});
+
+test("unrecoverable original keeps the statusLine and the installed bin", () => {
+  for (const cmd of [
+    `${base} statusline --after `,
+    `${base} statusline --after`,
+    `${base} statusline --after 'unterminated`,
+    `${base} statusline --after 'a' 'b'`,
+    `${base} statusline --after 'a' --after 'b'`,
+    `${base} statusline --bogus --after 'a'`,
+    `${base} statusline --after ''`,
+  ]) {
+    const d = withStatus(cmd);
+    d.writeFile(bin, "x");
+    const out = runUninstall(d);
+    assert.equal(read(d).statusLine.command, cmd, cmd);
+    assert.equal(d.readFile(bin), "x", cmd);
+    assert.match(out, /could not recover/, cmd);
+    assert.ok(out.includes(`kept: ${binDirPath}`), out);
+    assert.doesNotMatch(out, /removed:/, cmd);
+  }
+});
+
+test("uninstall writes a backup before changing settings", () => {
+  const d = mk(JSON.stringify({ model: "opus" }));
+  runInit(d, self);
+  const installed = d.readFile(settings)!;
+  const out = runUninstall(d);
+  assert.equal(d.readFile(settings + ".bak-19700101-000000-1"), installed);
+  assert.match(out, /backup: /);
+});
+
+test("uninstall with nothing of ours leaves settings untouched, no backup", () => {
+  const text = JSON.stringify({ model: "opus" }, null, 2) + "\n";
+  const d = mk(text);
+  const out = runUninstall(d);
+  assert.equal(d.readFile(settings), text);
+  assert.equal(d.mtime(settings + ".bak-19700101-000000"), null);
+  assert.match(out, /unchanged: /);
+});

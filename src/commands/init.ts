@@ -131,35 +131,91 @@ export function runInit(d: Deps, selfPath: string, opts: { settings?: string } =
   return lines.join("\n");
 }
 
+/**
+ * Parse the arguments after our `statusline` prefix. `--ascii` may appear anywhere; `--after` must be
+ * followed by exactly one POSIX single-quoted word. Returns the wrapped command (null if none), or
+ * undefined when the text is anything else.
+ */
+export function recoverOriginal(rest: string): string | null | undefined {
+  const words: string[] = [];
+  let i = 0;
+  while (i < rest.length) {
+    if (/\s/.test(rest[i]!)) { i++; continue; }
+    let w = "";
+    while (i < rest.length && !/\s/.test(rest[i]!)) {
+      if (rest.startsWith("\\'", i)) {
+        w += "\\'";
+        i += 2;
+      } else if (rest[i] === "'") {
+        const end = rest.indexOf("'", i + 1);
+        if (end < 0) return undefined;
+        w += rest.slice(i, end + 1);
+        i = end + 1;
+      } else {
+        w += rest[i++];
+      }
+    }
+    words.push(w);
+  }
+  let orig: string | null = null;
+  for (let k = 0; k < words.length; k++) {
+    if (words[k] === "--ascii") continue;
+    if (words[k] !== "--after" || orig !== null || k + 1 >= words.length) return undefined;
+    const u = posixUnquote(words[++k]!);
+    if (!u) return undefined;
+    orig = u;
+  }
+  return orig;
+}
+
 export function runUninstall(d: Deps, opts: { settings?: string } = {}): string {
   const file = opts.settings ?? claudeSettingsPath(d);
   const loaded = loadSettings(file, d);
   if (typeof loaded === "string") return loaded;
   const { json, text } = loaded;
 
-  const notes: string[] = [];
-  if (text !== null) {
-    if (isObject(json.hooks) && Array.isArray(json.hooks.PreToolUse)) {
-      const hooks = json.hooks;
-      const { kept } = stripOurs(hooks.PreToolUse as unknown[]);
-      if (kept.length > 0) hooks.PreToolUse = kept;
-      else delete hooks.PreToolUse;
-      if (Object.keys(hooks).length === 0) delete json.hooks;
-    }
-    const sl = json.statusLine;
-    if (isObject(sl) && isOursStatusLine(sl)) {
-      const rest = (sl.command as string).replace(OURS_STATUSLINE, "");
-      if (rest === "") {
-        delete json.statusLine;
-      } else {
-        const orig = rest.startsWith(" --after ") ? posixUnquote(rest.slice(" --after ".length)) : null;
-        if (orig !== null) json.statusLine = { ...sl, command: orig };
-        else notes.push("could not recover the original statusLine command; left it in place");
-      }
-    }
-    d.writeFile(file, serialize(json));
+  if (text === null) {
+    d.remove(binDir(d));
+    return `no settings file at ${file}; removed installed files`;
   }
-  d.remove(binDir(d));
-  const head = text === null ? `no settings file at ${file}; removed installed files` : `restored: ${file}\nremoved: ${binDir(d)}`;
-  return [head, ...notes].join("\n");
+
+  const lines: string[] = [];
+  let keepBin = false;
+  if (isObject(json.hooks) && Array.isArray(json.hooks.PreToolUse)) {
+    const hooks = json.hooks;
+    const { kept } = stripOurs(hooks.PreToolUse as unknown[]);
+    if (kept.length > 0) hooks.PreToolUse = kept;
+    else delete hooks.PreToolUse;
+    if (Object.keys(hooks).length === 0) delete json.hooks;
+  }
+  const sl = json.statusLine;
+  if (isObject(sl) && isOursStatusLine(sl)) {
+    const orig = recoverOriginal((sl.command as string).replace(OURS_STATUSLINE, ""));
+    if (orig === null) delete json.statusLine;
+    else if (orig !== undefined) json.statusLine = { ...sl, command: orig };
+    else keepBin = true;
+  }
+
+  const out = serialize(json);
+  if (out === text) {
+    lines.push(`unchanged: ${file}`);
+  } else {
+    let bak = `${file}.bak-${timestamp(d.now())}`;
+    for (let n = 1; d.mtime(bak) !== null; n++) bak = `${file}.bak-${timestamp(d.now())}-${n}`;
+    d.writeFile(bak, text);
+    lines.push(`backup: ${bak}`);
+    d.writeFile(file, out);
+    lines.push(`restored: ${file}`);
+  }
+  if (keepBin) {
+    // the status line still runs our installed copy: deleting it would break the user's status line
+    lines.push(
+      "could not recover the original statusLine command; left it in place",
+      `kept: ${binDir(d)} (the statusLine above still uses it; edit statusLine, then delete this folder)`,
+    );
+  } else {
+    d.remove(binDir(d));
+    lines.push(`removed: ${binDir(d)}`);
+  }
+  return lines.join("\n");
 }
