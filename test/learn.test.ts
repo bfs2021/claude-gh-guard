@@ -8,19 +8,23 @@ import type { LearnedEntry } from "../src/learn.ts";
 const REPO = "https://api.github.com/repos/org/repo";
 const COMMITS = `${REPO}/commits?per_page=50`;
 
-function res(status: number, body: unknown): Response {
-  return new Response(JSON.stringify(body), { status });
+function res(status: number, body: unknown, headers?: Record<string, string>): Response {
+  return new Response(JSON.stringify(body), { status, headers });
 }
 
 function setup(opts: {
   push: Record<string, boolean | number>; // login -> push perm or http status
   commits?: unknown[] | number;
   now?: number;
+  rateLimit403?: boolean;
+  commitsReject?: boolean;
+  tokenFail?: string;
 }) {
   const calls: { url: string; auth: string | null; signal: boolean }[] = [];
   const d = fakeDeps({
     now: () => opts.now ?? 1000,
     exec: (cmd, args) => {
+      if (cmd === "gh" && args[3] === opts.tokenFail) return { code: 1, stdout: "", stderr: "" };
       if (cmd === "gh" && args[0] === "auth" && args[1] === "token" && args[2] === "--user") {
         return { code: 0, stdout: `gho_${args[3]}\n`, stderr: "" };
       }
@@ -32,10 +36,12 @@ function setup(opts: {
       if (url === REPO) {
         const login = headers.Authorization!.replace("Bearer gho_", "");
         const v = opts.push[login];
-        if (typeof v === "number") return res(v, {});
+        if (v === 1) throw new Error("boom");
+        if (typeof v === "number") return res(v, {}, v === 403 && opts.rateLimit403 ? { "x-ratelimit-remaining": "0" } : undefined);
         return res(200, { permissions: { push: v === true } });
       }
       if (url === COMMITS) {
+        if (opts.commitsReject) throw new Error("boom");
         if (typeof opts.commits === "number") return res(opts.commits, {});
         return res(200, opts.commits ?? []);
       }
@@ -146,4 +152,49 @@ test("isFresh: age and login-set change", () => {
   assert.equal(isFresh(e, ["B", "A"], 1000 + 604800000), true);
   assert.equal(isFresh(e, ["A", "B"], 1000 + 604800001), false);
   assert.equal(isFresh(e, ["A", "B", "C"], 2000), false);
+});
+
+test("B fetch rejects -> null", async () => {
+  const { d } = setup({ push: { A: true, B: 1 } });
+  assert.equal(await learnRepo("org", "repo", ["A", "B"], d, 1000), null);
+});
+
+test("B 503 or 429 -> null", async () => {
+  for (const st of [503, 429]) {
+    const { d } = setup({ push: { A: true, B: st } });
+    assert.equal(await learnRepo("org", "repo", ["A", "B"], d, 1000), null);
+  }
+});
+
+test("403 rate limited -> null; plain 403 -> single", async () => {
+  const rl = setup({ push: { A: true, B: 403 }, rateLimit403: true });
+  assert.equal(await learnRepo("org", "repo", ["A", "B"], rl.d, 1000), null);
+  const plain = setup({ push: { A: true, B: 403 } });
+  const e = await learnRepo("org", "repo", ["A", "B"], plain.d, 1000);
+  assert.equal(e?.basis, "single");
+  assert.equal(e?.expected, "A");
+});
+
+test("history ignores non-pusher logins", async () => {
+  const { d } = setup({
+    push: { A: true, B: true, C: 404 },
+    commits: [commit("C"), commit("C"), commit("C"), commit("A"), commit("A"), commit("B")],
+  });
+  const e = await learnRepo("org", "repo", ["A", "B", "C"], d, 1000);
+  assert.equal(e?.expected, "A");
+  assert.equal(e?.basis, "history");
+});
+
+test("commits fetch rejects -> ambiguous", async () => {
+  const { d } = setup({ push: { A: true, B: true }, commitsReject: true });
+  const e = await learnRepo("org", "repo", ["A", "B"], d, 1000);
+  assert.equal(e?.basis, "ambiguous");
+});
+
+test("token exec failure skips that login", async () => {
+  const { d, calls } = setup({ push: { A: true, B: true }, tokenFail: "B" });
+  const e = await learnRepo("org", "repo", ["A", "B"], d, 1000);
+  assert.equal(e?.basis, "single");
+  assert.deepEqual(e?.pushers, ["A"]);
+  assert.equal(calls.length, 1);
 });

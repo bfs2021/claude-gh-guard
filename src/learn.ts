@@ -92,6 +92,13 @@ export async function learnRepo(
       if (t.code !== 0 || !token) continue;
       if (Date.now() - start >= timeoutMs) return null;
       const r = await api(base, token);
+      if (
+        r.status === 429 ||
+        r.status >= 500 ||
+        (r.status === 403 && r.headers.get("x-ratelimit-remaining") === "0")
+      ) {
+        return null;
+      }
       if (r.status !== 200) continue;
       const body = (await Promise.race([r.json(), aborted])) as { permissions?: { push?: boolean } };
       if (body?.permissions?.push === true) {
@@ -112,7 +119,7 @@ export async function learnRepo(
           for (const c of commits) {
             const al = c?.author?.login;
             if (typeof al !== "string") continue;
-            const mine = logins.find((l) => l.toLowerCase() === al.toLowerCase());
+            const mine = pushers.find((l) => l.toLowerCase() === al.toLowerCase());
             if (mine) counts.set(mine, (counts.get(mine) ?? 0) + 1);
           }
         }
