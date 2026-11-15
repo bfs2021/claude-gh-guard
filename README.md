@@ -1,5 +1,7 @@
 # claude-gh-guard
 
+![claude-gh-guard: stop Claude Code from committing to your work repo with your personal GitHub account](assets/social-preview.png)
+
 [![npm version](https://img.shields.io/npm/v/claude-gh-guard)](https://www.npmjs.com/package/claude-gh-guard)
 [![npm downloads](https://img.shields.io/npm/dm/claude-gh-guard)](https://www.npmjs.com/package/claude-gh-guard)
 [![CI](https://github.com/seuthootDev/claude-gh-guard/actions/workflows/ci.yml/badge.svg)](https://github.com/seuthootDev/claude-gh-guard/actions/workflows/ci.yml)
