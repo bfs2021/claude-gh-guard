@@ -12,7 +12,11 @@ const GLYPH = {
 
 const COLOR = { MATCH: 32, MISMATCH: 31, AMBIGUOUS: 33, UNKNOWN: 37, UNTRACKED: 37, UNAUTH: 33 } as const;
 
-export function render(v: Verdict, push: PushIdentity | null, opts: { ascii: boolean; color: boolean }): string {
+export function render(
+  v: Verdict,
+  push: PushIdentity | null,
+  opts: { ascii: boolean; color: boolean; moved?: string | null },
+): string {
   const g = GLYPH[v.state][opts.ascii ? 1 : 0];
   const active = v.active ?? "?";
   let text: string;
@@ -32,5 +36,6 @@ export function render(v: Verdict, push: PushIdentity | null, opts: { ascii: boo
   ) {
     text += ` · push(${push.via}):${push.login}`;
   }
+  if (opts.moved) text += ` · moved${opts.ascii ? "->" : "→"}${opts.moved}`;
   return opts.color ? `\x1b[${COLOR[v.state]}m${text}\x1b[0m` : text;
 }

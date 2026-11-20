@@ -9,6 +9,7 @@ import { parseRemoteUrl } from "../remote.ts";
 import type { Remote } from "../remote.ts";
 import { learnRepo, writeLearned } from "../learn.ts";
 import { logError } from "../errorLog.ts";
+import { movedTo, setUrlFix } from "../moved.ts";
 
 const BUDGET_MS = 3000;
 
@@ -37,6 +38,7 @@ export async function runHook(stdin: string, d: Deps): Promise<{ stdout: string;
     const start = d.now();
     const sshConfig = d.readFile(path.join(d.home, ".ssh", "config"));
     let notice: string | null = null;
+    let movedNotice: string | null = null;
 
     for (const seg of segs) {
       const opts: { allowSpawn: boolean; remoteName?: string; remoteOverride?: Remote; skipPush?: boolean } = {
@@ -87,8 +89,15 @@ export async function runHook(stdin: string, d: Deps): Promise<{ stdout: string;
       if (seg.emailOverride !== undefined) g.facts.email = seg.emailOverride;
 
       const v = evaluate(seg.kind, g.facts);
+      const r = g.facts.remote;
+      const moved = movedTo(d, r);
+      const movedText =
+        moved && r
+          ? `${r.owner}/${r.repo} has moved to ${moved} on GitHub; update the remote: ${setUrlFix(r, moved, explicit ? "" : g.facts.remoteName)}`
+          : null;
       if (v.state === "MISMATCH") {
-        const reason = `claude-gh-guard: ${v.problems.join("; ")}. Fix: ${v.fixes.join(" && ")}`;
+        let reason = `claude-gh-guard: ${v.problems.join("; ")}. Fix: ${v.fixes.join(" && ")}`;
+        if (movedText) reason += `. Note: ${movedText} (the expected account was judged by the old name)`;
         return {
           stdout: JSON.stringify({
             hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: reason },
@@ -96,12 +105,13 @@ export async function runHook(stdin: string, d: Deps): Promise<{ stdout: string;
           exitCode: 0,
         };
       }
+      if (movedNotice === null && movedText) movedNotice = `claude-gh-guard: ${movedText}`;
       if (notice === null && (v.state === "AMBIGUOUS" || v.state === "UNKNOWN" || v.state === "UNAUTH")) {
-        const r = g.facts.remote;
         notice = `claude-gh-guard: ${v.state} for ${r ? `${r.owner}/${r.repo}` : "this directory"} — not blocked. Run claude-gh-guard doctor.`;
       }
     }
-    return notice ? { stdout: JSON.stringify({ systemMessage: notice }), exitCode: 0 } : none;
+    const message = [notice, movedNotice].filter(Boolean).join("\n");
+    return message ? { stdout: JSON.stringify({ systemMessage: message }), exitCode: 0 } : none;
   } catch (e) {
     logError(d, e);
     return none;

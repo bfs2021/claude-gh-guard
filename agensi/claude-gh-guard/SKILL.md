@@ -41,7 +41,7 @@ It relies on Claude Code hooks and the status line, so it does not work in Curso
 
 ## Read the result of `doctor`
 
-`doctor` prints the gh logins, active account, remote, effective commit email, push identity, the expected account and why, and the resulting state.
+`doctor` prints the gh logins, active account, remote, whether the repo was transferred or renamed (`moved:`, with the `git remote set-url` fix), effective commit email, push identity, the expected account and why, and the resulting state.
 
 | State | Meaning | Blocks? | What to tell the user |
 |---|---|---|---|

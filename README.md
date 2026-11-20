@@ -94,6 +94,18 @@ The status line also shows which Claude account Claude Code is logged in with, s
 
 The status line's render cache refreshes at least every 10 minutes.
 
+## Moved repos (transfers and renames)
+
+After a repo is transferred or renamed, GitHub keeps redirecting the old URL, so git keeps working while your remote still names the old owner. The guard judges by the remote URL, so it would keep judging by the old owner, and could expect the wrong account.
+
+To catch this, the status line asks the GitHub API in the background, once per repo every 7 days, what the repo is called now (cached in `~/.claude-gh-guard/moved.json`). If the name changed:
+
+- the status line appends `· moved→new-owner/repo`
+- the hook adds a notice to every guarded command, and a note to any block, with the fix: `git remote set-url origin <new url>` (protocol and SSH alias kept)
+- `doctor` prints a `moved:` line, checking live if the cache is stale
+
+It only warns: the expected account is still judged by the remote URL until you update it.
+
 ## Optional profiles: `~/.gh-guard.json`
 
 ```json
@@ -121,7 +133,7 @@ The status line's render cache refreshes at least every 10 minutes.
 claude-gh-guard doctor
 ```
 
-Prints, for the current directory: gh config location, logins, active account, remote, effective email, push identity, expected account and why, resulting state, and timing. For AMBIGUOUS it prints a ready-to-paste profile snippet.
+Prints, for the current directory: gh config location, logins, active account, remote, whether the repo has moved, effective email, push identity, expected account and why, resulting state, and timing. For AMBIGUOUS it prints a ready-to-paste profile snippet.
 
 ## Windows
 

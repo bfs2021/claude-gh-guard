@@ -5,8 +5,9 @@ import { evaluate } from "../evaluate.ts";
 import { effectiveEmail } from "../gitRepo.ts";
 import { readLearned } from "../learn.ts";
 import { readClaudeAccount, claudeStatePath } from "../claudeAccount.ts";
+import { checkMoved, readMoved, writeMoved, isMovedFresh, movedKey, movedTo, setUrlFix } from "../moved.ts";
 
-export function runDoctor(cwd: string, d: Deps): string {
+export async function runDoctor(cwd: string, d: Deps): Promise<string> {
   const t0 = Date.now();
   const { facts, repo } = gatherFacts(cwd, d, { allowSpawn: true });
   const ms = Date.now() - t0;
@@ -30,6 +31,20 @@ export function runDoctor(cwd: string, d: Deps): string {
   let push = "(n/a)";
   if (facts.push) push = facts.push.via === "unknown" ? "unknown" : `${facts.push.login ?? "unknown"} via ${facts.push.via}`;
 
+  let moved = "(n/a)";
+  if (remote && remote.host.toLowerCase() === "github.com") {
+    const cached = readMoved(d)[movedKey(remote)];
+    if (!cached || !isMovedFresh(cached, d.now())) {
+      const e = await checkMoved(remote.owner, remote.repo, logins, facts.hosts?.active ?? null, d, 5000);
+      if (e) writeMoved(d, `${remote.owner}/${remote.repo}`, e);
+    }
+    const to = movedTo(d, remote);
+    const entry = readMoved(d)[movedKey(remote)];
+    if (to) moved = `yes, now ${to} - fix: ${setUrlFix(remote, to, facts.remoteName)}`;
+    else if (entry && isMovedFresh(entry, d.now())) moved = entry.fullName ? "no" : "unknown (no login can see the repo)";
+    else moved = "unknown (GitHub API check failed)";
+  }
+
   const email = repo ? effectiveEmail(repo, d) : { email: null, source: "none" };
   const claude = readClaudeAccount(d);
 
@@ -39,6 +54,7 @@ export function runDoctor(cwd: string, d: Deps): string {
     `active: ${facts.hosts?.active ?? "(none)"}`,
     `repo: ${repo ? repo.workTree : "(not a git repo)"}`,
     `remote: ${remote ? `${facts.remoteName} -> ${remote.host}/${remote.owner}/${remote.repo} (${remote.protocol}${remote.sshAlias ? `, alias ${remote.sshAlias}` : ""})` : "(none)"}`,
+    `moved: ${moved}`,
     `email: ${email.email ?? "(none)"} (${email.source})`,
     `push identity: ${push}`,
     `expected: ${expected}`,

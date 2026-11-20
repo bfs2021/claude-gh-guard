@@ -291,3 +291,36 @@ test("after learning, a failed ssh probe is not replaced by the cached login", a
   const r = await runHook(input("git push origin main"), d);
   assert.ok(!r.stdout.includes("deny"), r.stdout);
 });
+
+const movedPath = path.join(home, ".claude-gh-guard", "moved.json");
+
+test("moved repo: allowed commands get a systemMessage with the set-url fix", async () => {
+  const d = fakeDeps({ files: files("git@github.com:alice/x.git", { [movedPath]: JSON.stringify({ "alice/x": { fullName: "corp/x", checkedAt: 0 } }) }) });
+  const r = await runHook(input("git commit -m x"), d);
+  assert.equal(
+    JSON.parse(r.stdout).systemMessage,
+    "claude-gh-guard: alice/x has moved to corp/x on GitHub; update the remote: git remote set-url origin git@github.com:corp/x.git",
+  );
+});
+
+test("moved repo: a deny carries the note too", async () => {
+  const d = fakeDeps({
+    files: files("https://github.com/alice/x.git", { [movedPath]: JSON.stringify({ "alice/x": { fullName: "corp/x", checkedAt: 0 } }) }, "[user]\n\temail = 1+bob-work@users.noreply.github.com\n"),
+  });
+  const out = JSON.parse((await runHook(input("git commit -m x"), d)).stdout).hookSpecificOutput;
+  assert.equal(out.permissionDecision, "deny");
+  assert.match(out.permissionDecisionReason, /Note: alice\/x has moved to corp\/x on GitHub; update the remote: git remote set-url origin https:\/\/github\.com\/corp\/x\.git/);
+});
+
+test("moved repo with an explicit gh -R: no set-url, notice joins other notices", async () => {
+  const d = fakeDeps({
+    files: files("https://github.com/alice/x.git", { [movedPath]: JSON.stringify({ "corp/app": { fullName: "corp2/app", checkedAt: 0 } }) }),
+    exec: ghTokens,
+    fetch: (async () => new Response("{}", { status: 503 })) as unknown as typeof fetch,
+  });
+  const r = await runHook(input("gh pr create -R corp/app"), d);
+  assert.equal(
+    JSON.parse(r.stdout).systemMessage,
+    "claude-gh-guard: UNKNOWN for corp/app — not blocked. Run claude-gh-guard doctor.\nclaude-gh-guard: corp/app has moved to corp2/app on GitHub; update the remote: use corp2/app instead",
+  );
+});

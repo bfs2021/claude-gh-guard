@@ -44,3 +44,9 @@ test("render ascii for every state", () => {
   assert.equal(render(v("UNTRACKED", "a"), null, a), "[?] gh:a (no-remote)");
   assert.equal(render(v("UNAUTH", null), null, a), "[!] gh:not-logged-in");
 });
+
+test("render appends a moved repo", () => {
+  assert.equal(render(v("MATCH", "a", "a"), { via: "ssh", login: "b" }, { ...plain, moved: "corp/x" }), "🟢 gh:a · push(ssh):b · moved→corp/x");
+  assert.equal(render(v("MISMATCH", "a", "b"), null, { ascii: true, color: false, moved: "corp/x" }), "[X] gh:a ≠ b · moved->corp/x");
+  assert.equal(render(v("MATCH", "a", "a"), null, { ...plain, moved: null }), "🟢 gh:a");
+});
