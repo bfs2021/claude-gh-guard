@@ -1,6 +1,6 @@
 {
   "name": "claude-gh-guard",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Stop Claude Code from committing to your work repo with your personal GitHub account",
   "license": "MIT",
   "repository": {
