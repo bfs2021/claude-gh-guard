@@ -87,10 +87,10 @@ test("status line --ascii uses an ascii separator", () => {
   assert.equal(runStatusline(stdin, ["--ascii"], d), "[OK] gh:alice | claude:corp.example (max)");
 });
 
-test("doctor prints the Claude account and where it was read", () => {
+test("doctor prints the Claude account and where it was read", async () => {
   const d = fakeDeps({ files: { ...repoFiles, [defaultPath]: state(personal) } });
-  const out = runDoctor(path.resolve("/w/r"), d);
+  const out = await runDoctor(path.resolve("/w/r"), d);
   assert.ok(out.split("\n").includes(`claude: me@corp.example, me@corp.example's Organization (max) [${defaultPath}]`), out);
-  const none = runDoctor(path.resolve("/w/r"), fakeDeps({ files: repoFiles }));
+  const none = await runDoctor(path.resolve("/w/r"), fakeDeps({ files: repoFiles }));
   assert.ok(none.split("\n").includes(`claude: (not found) [${defaultPath}]`), none);
 });

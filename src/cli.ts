@@ -4,7 +4,7 @@ import { realDeps } from "./deps.ts";
 import type { Deps } from "./deps.ts";
 import { logError } from "./errorLog.ts";
 import { runStatusline } from "./commands/statusline.ts";
-import { runLearn } from "./commands/learn.ts";
+import { runLearn, runMoved } from "./commands/learn.ts";
 import { runHook } from "./commands/hook.ts";
 import { runInit, runUninstall } from "./commands/init.ts";
 import { runDoctor } from "./commands/doctor.ts";
@@ -31,6 +31,9 @@ export async function main(argv: string[]): Promise<number> {
       case "learn":
         await runLearn(rest, d);
         return 0;
+      case "moved":
+        await runMoved(rest, d);
+        return 0;
       case "hook": {
         const out = await runHook(readStdin(), d);
         if (out.stdout) process.stdout.write(out.stdout);
@@ -52,10 +55,10 @@ export async function main(argv: string[]): Promise<number> {
         return failed ? 1 : 0;
       }
       case "doctor":
-        process.stdout.write(runDoctor(process.cwd(), d) + "\n");
+        process.stdout.write((await runDoctor(process.cwd(), d)) + "\n");
         return 0;
       default:
-        process.stderr.write("usage: claude-gh-guard <statusline|hook|init|uninstall|doctor|learn>\n");
+        process.stderr.write("usage: claude-gh-guard <statusline|hook|init|uninstall|doctor|learn|moved>\n");
         return 0;
     }
   } catch (e) {

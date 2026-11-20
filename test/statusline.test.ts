@@ -5,7 +5,7 @@ import { createHash } from "node:crypto";
 import { realDeps } from "../src/deps.ts";
 import { fakeDeps } from "../test/helpers.ts";
 import { runStatusline } from "../src/commands/statusline.ts";
-import { runLearn } from "../src/commands/learn.ts";
+import { runLearn, runMoved } from "../src/commands/learn.ts";
 
 const HOSTS = `github.com:
     user: alice
@@ -110,9 +110,9 @@ test("statusline spawns learn for unknown org, does not fetch", () => {
     fetch: (() => { fetched++; return Promise.reject(new Error("no")); }) as typeof fetch,
   });
   assert.equal(runStatusline(stdin, [], d), "⚪ gh:alice (?)");
-  assert.deepEqual(spawned, [["learn", "corp", "app"]]);
+  assert.deepEqual(spawned, [["learn", "corp", "app"], ["moved", "corp", "app"]]);
   runStatusline(stdin, [], d); // cache hit: no second spawn
-  assert.equal(spawned.length, 1);
+  assert.equal(spawned.length, 2);
   assert.equal(fetched, 0);
 });
 
@@ -236,4 +236,50 @@ test("learn lock prevents concurrent runs; stale lock reclaimed", async () => {
   d = mk(0, { [lock]: "" });
   await runLearn(["corp", "app"], d);
   assert.ok(fetches > before);
+});
+
+const movedPath = path.join("/home/test", ".claude-gh-guard", "moved.json");
+
+test("statusline shows a moved repo and only re-checks when the cache is stale", () => {
+  const spawned: string[][] = [];
+  const d = fakeDeps({
+    env,
+    files: { ...files("git@github.com:alice/x.git"), [movedPath]: JSON.stringify({ "alice/x": { fullName: "corp/x", checkedAt: 0 } }) },
+    spawnDetached: (a) => { spawned.push(a); },
+  });
+  assert.equal(runStatusline(stdin, [], d), "🟢 gh:alice · moved→corp/x");
+  assert.deepEqual(spawned, []);
+  const stale = { ...d, now: () => 604800001 };
+  runStatusline(stdin, [], stale);
+  assert.deepEqual(spawned, [["moved", "alice", "x"]]);
+});
+
+test("statusline: unmoved and non-github remotes show nothing extra", () => {
+  const spawned: string[][] = [];
+  const d = fakeDeps({
+    env,
+    files: { ...files("git@github.com:alice/x.git"), [movedPath]: JSON.stringify({ "alice/x": { fullName: "Alice/X", checkedAt: 0 } }) },
+    spawnDetached: (a) => { spawned.push(a); },
+  });
+  assert.equal(runStatusline(stdin, [], d), "🟢 gh:alice");
+  const ghe = fakeDeps({ env, files: files("git@ghe.example.com:alice/x.git"), spawnDetached: (a) => { spawned.push(a); } });
+  runStatusline(stdin, [], ghe);
+  assert.deepEqual(spawned, []);
+});
+
+test("moved command writes the cache and respects its lock", async () => {
+  const d = fakeDeps({
+    files: { [hostsPath]: HOSTS },
+    now: () => 100000,
+    exec: (cmd, args) => (cmd === "gh" ? { code: 0, stdout: `tok_${args[3]}`, stderr: "" } : { code: 1, stdout: "", stderr: "" }),
+    fetch: (async () => new Response(JSON.stringify({ full_name: "corp/x" }), { status: 200 })) as unknown as typeof fetch,
+  });
+  const lock = path.join("/home/test", ".claude-gh-guard", "moved.lock");
+  d.writeFile(lock, "123");
+  const locked = { ...d, mtime: (p: string) => (path.normalize(p) === path.normalize(lock) ? 99000 : d.mtime(p)) };
+  await runMoved(["alice", "x"], locked);
+  assert.equal(d.readFile(movedPath), null);
+  await runMoved(["alice", "x"], d);
+  assert.deepEqual(JSON.parse(d.readFile(movedPath)!), { "alice/x": { fullName: "corp/x", checkedAt: 100000 } });
+  assert.equal(d.readFile(lock), "");
 });

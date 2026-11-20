@@ -8,6 +8,7 @@ import { evaluate } from "../evaluate.ts";
 import { render } from "../render.ts";
 import { findRepo } from "../gitRepo.ts";
 import { readClaudeAccount, formatClaudeAccount } from "../claudeAccount.ts";
+import { readMoved, isMovedFresh, movedKey, movedTo } from "../moved.ts";
 
 const sha1 = (s: string) => createHash("sha1").update(s).digest("hex");
 
@@ -46,7 +47,18 @@ function compute(cwd: string, d: Deps, ascii: boolean, color: boolean): string {
       // learning is best-effort
     }
   }
-  return render(evaluate("status", facts), facts.push, { ascii, color });
+  const r = facts.remote;
+  if (r && r.host.toLowerCase() === "github.com") {
+    const e = readMoved(d)[movedKey(r)];
+    if (!e || !isMovedFresh(e, d.now())) {
+      try {
+        d.spawnDetached(["moved", r.owner, r.repo]);
+      } catch {
+        // best-effort
+      }
+    }
+  }
+  return render(evaluate("status", facts), facts.push, { ascii, color, moved: movedTo(d, r) });
 }
 
 // A bare "bash" on Windows can be WSL's System32 launcher, so only trust it under Git Bash itself.
@@ -77,6 +89,7 @@ export function runStatusline(stdin: string, argv: string[], d: Deps): string {
       path.join(d.home, ".gitconfig"),
       path.join(d.home, ".gh-guard.json"),
       path.join(stateDir(d), "learned.json"),
+      path.join(stateDir(d), "moved.json"),
       path.join(stateDir(d), "ssh.json"),
       path.join(d.home, ".ssh", "config"),
       ...(d.env.GIT_CONFIG_GLOBAL ? [d.env.GIT_CONFIG_GLOBAL] : []),
