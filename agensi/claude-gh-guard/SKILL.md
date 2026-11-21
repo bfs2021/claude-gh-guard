@@ -2,7 +2,7 @@
 name: claude-gh-guard
 description: Installs, checks and troubleshoots claude-gh-guard, which stops Claude Code from running git commit, git push or gh pr create with the wrong GitHub account (for example your personal account in a work repo). Use when the user has several GitHub accounts, asks which account a repo will use, or wants to set up, debug or remove the guard.
 summary: Stop Claude Code from committing to your work repo with your personal GitHub account. Free and open source (MIT).
-version: 0.2.0
+version: 0.3.0
 tags: [claude-code, github, git, gh, security, hooks, statusline]
 keywords: [wrong github account, multiple github accounts, gh auth switch, work and personal account, git author email, pre-commit guard]
 use_cases:
